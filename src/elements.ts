@@ -36,18 +36,22 @@ export class PermitElements {
     return this.axios
       .post(loginUrl, { tenant: tenant }, this.config)
       .then((response) => {
-        return this.axios.get(response.data).then(function (response) {
-          // console.info(response);
+        console.info(response);
+        const url = String(response.data.url);
+        return this.axios.get(url, this.config).then(function (response) {
+          console.info(response);
           this.isConnected = true;
-          return true;
+          return this.isConnected;
         }).catch((error) => {
           console.error(error);
-          return false;
+          this.isConnected = false;
+          return this.isConnected;
         });
       })
       .catch((error) => {
         console.error(error);
-        return false;
+        this.isConnected = false;
+        return this.isConnected;
       });
   }
   logout = async (logoutUrl: string) => {
