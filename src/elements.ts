@@ -5,12 +5,16 @@ export class PermitElements {
   config?: AxiosRequestConfig;
   axios: AxiosInstance;
   isConnected: boolean;
-
-  constructor() {
+  elementsId?: string;
+  me?: any;
+  constructor(elementsId?: string) {
+    this.elementsId = elementsId;
     this.config = {}
+    this.isConnected = false;
     this.axios = axios.create({ withCredentials: true });
   }
-  login = async ({
+
+  loginWithAjax = async ({
     loginUrl,
     loginMethod,
     tenant,
@@ -36,36 +40,74 @@ export class PermitElements {
     return this.axios
       .post(loginUrl, { tenant: tenant }, this.config)
       .then((response) => {
-        console.info(response);
-        const url = String(response.data.url);
-        return this.axios.get(url, this.config).then(function (response) {
-          console.info(response);
-          this.isConnected = true;
-          return this.isConnected;
-        }).catch((error) => {
-          console.error(error);
-          this.isConnected = false;
-          return this.isConnected;
-        });
+        return response.data.url;
       })
       .catch((error) => {
-        console.error(error);
         this.isConnected = false;
-        return this.isConnected;
+        console.error(error);
+        throw new Error('Error while trying to login, make sure that you\'ve created a login as route in your application and passed the right credentials');
       });
   }
-  logout = async (logoutUrl: string) => {
-    if (!this.isConnected) {
-      this.help();
-      return false;
+
+
+  login = async ({
+    loginUrl,
+    loginMethod = LoginMethod.cookie,
+    tenant,
+    token,
+    headers,
+  }: LoginInterface): Promise<boolean> => {
+    if (this.isConnected) {
+      console.info('Already connected, if you want to connect to another tenant, please logout first');
+      return Promise.resolve(true);
     }
-    return this.axios.get(logoutUrl)
+    // check if the iframe is already created
+    const checkIframe = document.getElementById('permit-iframe');
+    if (checkIframe) {
+      return Promise.resolve(false);
+    }
+    let iframeUrl = '';
+    if (loginMethod !== LoginMethod.cookie) {
+      iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers });
+    } else{
+      iframeUrl = `${loginUrl}?tenant=${tenant}`
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'permit-iframe';
+    iframe.style.display = 'hidden';
+    iframe.style.width = '1px';
+    iframe.style.height = '1px';
+    iframe.style.position = 'absolute';
+    iframe.style.top = '-10px';
+    iframe.style.left = '-10px';
+    iframe.src = iframeUrl;
+    const promise = new Promise((resolve, reject) => {
+      window.addEventListener("message", (msg) => {
+        if (msg.origin.indexOf(PERMIT_URL) !== -1) {
+          this.isConnected = true;
+          this.me = msg.data.me;
+          resolve(true);
+        }
+      }, false);
+      document.body.appendChild(iframe);
+      this.isConnected = true;
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 3000);
+    });
+
+  }
+
+  logout = async (logoutCustomUrl?: string) => {
+    const logoutUrl = logoutCustomUrl || `https://${this.me.actor.env_id}.dev.permit.io/v2/auth/logout`;
+    return this.axios.post(logoutUrl)
       .then((response) => {
-        console.log(response)
+        this.isConnected = false
         return true
       })
       .catch((error) => {
-        console.log(error)
+        console.error(error)
         return false
       })
   }

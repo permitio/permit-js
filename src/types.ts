@@ -13,7 +13,7 @@ export interface LoginInterface {
 }
 export interface Elements {
   login: ({}: LoginInterface) => Promise<boolean>
-  logout: (logoutUrl: string) => Promise<boolean>
+  logout: (logoutUrl?: string) => Promise<boolean>
 }
 
 export interface Permit {
