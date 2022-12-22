@@ -9,7 +9,7 @@ export class PermitElements {
   axios: AxiosInstance;
   isConnected: boolean;
   me?: any;
-  isDev = window._env_.IS_PROD == false;
+  isDev = false;
   constructor() {
     this.config = {}
     this.isConnected = false;
