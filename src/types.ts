@@ -21,5 +21,5 @@ export interface Permit {
 }
 
 declare global {
-  interface Window { _permit: Permit; _env_: any;}
+  interface Window { _permit: Permit;}
 }
