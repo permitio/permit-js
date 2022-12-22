@@ -1,14 +1,16 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { LoginInterface, LoginMethod } from './types'
 
+const PERMIT_URL = new RegExp('^https:\/\/[a-z0-9]{32}\.embed\.api(\.stg|)\.permit\.io$');
+const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:8000');
+
 export class PermitElements {
   config?: AxiosRequestConfig;
   axios: AxiosInstance;
   isConnected: boolean;
-  elementsId?: string;
   me?: any;
-  constructor(elementsId?: string) {
-    this.elementsId = elementsId;
+  isDev = window._env_.IS_PROD == false;
+  constructor() {
     this.config = {}
     this.isConnected = false;
     this.axios = axios.create({ withCredentials: true });
@@ -84,7 +86,8 @@ export class PermitElements {
     iframe.src = iframeUrl;
     const promise = new Promise((resolve, reject) => {
       window.addEventListener("message", (msg) => {
-        if (msg.origin.indexOf(PERMIT_URL) !== -1) {
+        const urlRegex = this.isDev ? PERMIT_LOCAL_URL : PERMIT_URL;
+        if (msg.origin.match(urlRegex)) {
           this.isConnected = true;
           this.me = msg.data.me;
           resolve(true);
@@ -100,7 +103,7 @@ export class PermitElements {
   }
 
   logout = async (logoutCustomUrl?: string) => {
-    const logoutUrl = logoutCustomUrl || `https://${this.me.actor.env_id}.dev.permit.io/v2/auth/logout`;
+    const logoutUrl = logoutCustomUrl || `https://${this.me.actor.env_id}.embed.api.stg.permit.io/v2/auth/logout`;
     return this.axios.post(logoutUrl)
       .then((response) => {
         this.isConnected = false

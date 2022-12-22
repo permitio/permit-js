@@ -1,3 +1,3 @@
-import { Permit } from "./permit";
+import { permit } from "./permit";
 
-export default Permit;
+export default permit;

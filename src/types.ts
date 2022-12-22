@@ -19,3 +19,7 @@ export interface Elements {
 export interface Permit {
   elements: Elements
 }
+
+declare global {
+  interface Window { _permit: Permit; _env_: any;}
+}
