@@ -103,16 +103,20 @@ export class PermitElements {
   }
 
   logout = async (logoutCustomUrl?: string) => {
-    const logoutUrl = logoutCustomUrl || `https://${this.me.actor.env_id}.embed.api.stg.permit.io/v2/auth/logout`;
-    return this.axios.post(logoutUrl)
-      .then((response) => {
-        this.isConnected = false
-        return true
-      })
-      .catch((error) => {
-        console.error(error)
-        return false
-      })
+    const CleanEnvId = this.me.actor.env_id.replace(/-/g, '');
+    const logoutUrl = logoutCustomUrl || `https://${CleanEnvId}.embed.api.stg.permit.io/v2/auth/logout`;
+    // add iframe to logout
+    const iframe = document.createElement('iframe');
+    iframe.id = 'permit-iframe-logout';
+    iframe.style.width = '1px';
+    iframe.style.height = '1px';
+    iframe.style.position = 'absolute';
+    iframe.src = logoutUrl;
+    iframe.style.top = '-10px';
+    iframe.style.left = '-10px';
+    document.body.appendChild(iframe);
+    this.isConnected = false;
+    return Promise.resolve(true);
   }
 
   help = () => {
