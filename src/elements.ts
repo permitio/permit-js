@@ -104,7 +104,7 @@ export class PermitElements {
 
   logout = async (logoutCustomUrl?: string) => {
     const CleanEnvId = this.me.actor.env_id.replace(/-/g, '');
-    const logoutUrl = logoutCustomUrl || `https://${CleanEnvId}.embed.api.stg.permit.io/v2/auth/logout`;
+    const logoutUrl = logoutCustomUrl || `https://${CleanEnvId}.embed.api.permit.io/v2/auth/logout`;
     // add iframe to logout
     const iframe = document.createElement('iframe');
     iframe.id = 'permit-iframe-logout';
