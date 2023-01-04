@@ -1,8 +1,8 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { LoginInterface, LoginMethod } from './types'
 
-const PERMIT_URL = new RegExp('^https:\/\/[a-z0-9]{32}\.embed\.api(\.stg|)\.permit\.io$');
-const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:8000');
+const PERMIT_URL = new RegExp('^https:\/\/([a-z0-9]{32}\.|)embed\(\.api|)(\.stg|)\.permit\.io$');
+const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:.000');
 
 export class PermitElements {
   config?: AxiosRequestConfig;
@@ -76,7 +76,6 @@ export class PermitElements {
     }
 
     const iframe = document.createElement('iframe');
-    iframe.id = 'permit-iframe';
     iframe.style.display = 'hidden';
     iframe.style.width = '1px';
     iframe.style.height = '1px';
@@ -84,13 +83,20 @@ export class PermitElements {
     iframe.style.top = '-10px';
     iframe.style.left = '-10px';
     iframe.src = iframeUrl;
-    const promise = new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       window.addEventListener("message", (msg) => {
         const urlRegex = this.isDev ? PERMIT_LOCAL_URL : PERMIT_URL;
         if (msg.origin.match(urlRegex)) {
-          this.isConnected = true;
-          this.me = msg.data.me;
-          resolve(true);
+          if (msg.data.success === true) {
+            this.isConnected = true;
+            this.me = msg.data.me;
+            resolve(true);
+          }
+          if (msg.data.success === false) {
+            this.isConnected = false;
+            console.error(msg.data.error);
+            reject(msg.data.error);
+          }
         }
       }, false);
       document.body.appendChild(iframe);
