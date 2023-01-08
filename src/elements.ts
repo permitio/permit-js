@@ -85,7 +85,7 @@ export class PermitElements {
     iframe.src = iframeUrl;
     return new Promise((resolve, reject) => {
       window.addEventListener("message", (msg) => {
-        const urlRegex = this.isDev ? PERMIT_LOCAL_URL : PERMIT_URL;
+        const urlRegex = PERMIT_URL;
         if (msg.origin.match(urlRegex)) {
           if (msg.data.success === true) {
             this.isConnected = true;
@@ -94,8 +94,8 @@ export class PermitElements {
           }
           if (msg.data.success === false) {
             this.isConnected = false;
-            console.error(msg.data.error);
-            reject(msg.data.error);
+            const errorMsg = decodeURIComponent(msg?.data?.error);
+            reject(errorMsg);
           }
         }
       }, false);
@@ -109,8 +109,13 @@ export class PermitElements {
   }
 
   logout = async (logoutCustomUrl?: string) => {
-    const CleanEnvId = this.me.actor.env_id.replace(/-/g, '');
-    const logoutUrl = logoutCustomUrl || `https://${CleanEnvId}.embed.api.permit.io/v2/auth/logout`;
+    let logoutUrl = '';
+    if (logoutCustomUrl) {
+      logoutUrl = logoutCustomUrl;
+    } else {
+      const CleanEnvId = this.me?.actor?.env_id.replace(/-/g, '');
+      logoutUrl = `https://${CleanEnvId}.embed.api.permit.io/v2/auth/logout`;
+    }
     // add iframe to logout
     const iframe = document.createElement('iframe');
     iframe.id = 'permit-iframe-logout';
