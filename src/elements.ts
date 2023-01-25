@@ -72,7 +72,11 @@ export class PermitElements {
     if (loginMethod !== LoginMethod.cookie) {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers });
     } else{
-      iframeUrl = `${loginUrl}?tenant=${tenant}`
+      if (iframeUrl.includes('?')) {
+        iframeUrl = `${loginUrl}?tenant=${tenant}`
+      } else {
+        iframeUrl = `${loginUrl}&tenant=${tenant}`
+      }
     }
 
     const iframe = document.createElement('iframe');
