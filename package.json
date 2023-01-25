@@ -1,6 +1,6 @@
 {
   "name": "@permitio/permit-js",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Permitio is a frontend package that makes it easy to use permit abilities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
