@@ -73,9 +73,9 @@ export class PermitElements {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers });
     } else{
       if (iframeUrl.includes('?')) {
-        iframeUrl = `${loginUrl}?tenant=${tenant}`
-      } else {
         iframeUrl = `${loginUrl}&tenant=${tenant}`
+      } else {
+        iframeUrl = `${loginUrl}?tenant=${tenant}`
       }
     }
 
