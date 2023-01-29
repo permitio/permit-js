@@ -6,7 +6,7 @@ export enum LoginMethod {
 }
 export interface LoginInterface {
   loginUrl: string
-  loginMethod?: LoginMethod
+  loginMethod: LoginMethod
   tenant?: string
   token?: string
   headers?: Record<string, string>
