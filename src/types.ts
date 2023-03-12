@@ -3,13 +3,16 @@ export enum LoginMethod {
   bearer = 'bearer',
   header = 'header',
   cookie = 'cookie',
+  serverless = 'serverless',
 }
 export interface LoginInterface {
-  loginUrl: string
   loginMethod: LoginMethod
+  loginUrl?: string
   tenant?: string
   token?: string
   headers?: Record<string, string>
+  userJwt?: string
+  envId?: string
 }
 export interface Elements {
   login: ({}: LoginInterface) => Promise<boolean>

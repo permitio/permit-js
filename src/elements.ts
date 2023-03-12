@@ -22,7 +22,9 @@ export class PermitElements {
     tenant,
     token,
     headers,
+    userJwt,
   }: LoginInterface) => {
+    let postData: any = { tenant: tenant };
     if (loginMethod === LoginMethod.bearer) {
       if (token === undefined) {
         throw new Error('When using bearer login, token must be defined')
@@ -38,9 +40,15 @@ export class PermitElements {
       }
       this.config = { ...this.config, headers }
     }
+    if (loginMethod === LoginMethod.serverless) {
+      if (userJwt === undefined) {
+        throw new Error('When using header login, userJwt must be defined')
+      }
+      postData = { tenant_id: tenant, user_jwt: userJwt };
+    }
 
     return this.axios
-      .post(loginUrl, { tenant: tenant }, this.config)
+      .post(loginUrl, postData, this.config)
       .then((response) => {
         return response.data.url;
       })
@@ -58,6 +66,8 @@ export class PermitElements {
     tenant,
     token,
     headers,
+    userJwt,
+    envId
   }: LoginInterface): Promise<boolean> => {
     if (this.isConnected) {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
@@ -69,9 +79,24 @@ export class PermitElements {
       return Promise.resolve(false);
     }
     let iframeUrl = '';
-    if (loginMethod !== LoginMethod.cookie) {
+    if (loginMethod === LoginMethod.serverless) {
+      if (userJwt === undefined) {
+        throw new Error('When using serverless login, userJwt must be defined')
+      }
+      if (loginUrl !== undefined) {
+        console.warn('When using serverless login, loginUrl will be ignored')
+      }
+      if (envId === undefined) {
+        throw new Error('When using serverless login, envId must be defined')
+      }
+      loginUrl = `https://api.permit.io/v2/auth/${envId}/elements_fe_login_as`;
+      this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt });
+    }
+
+    if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers });
-    } else{
+    } 
+    if (loginMethod === LoginMethod.cookie){
       if (loginUrl.includes('?')) {
         iframeUrl = `${loginUrl}&tenant=${tenant}`
       } else {
