@@ -27,7 +27,7 @@ export class PermitElements {
     let postData: any = { tenant: tenant };
     if (loginMethod === LoginMethod.bearer) {
       if (token === undefined) {
-        throw new Error('When using bearer login, token must be defined')
+        throw new Error('When using bearer login, token must be defined');
       }
       this.config = {
         ...this.config,
@@ -36,13 +36,13 @@ export class PermitElements {
     }
     if (loginMethod === LoginMethod.header) {
       if (headers === undefined) {
-        throw new Error('When using header login, headers must be defined')
+        throw new Error('When using header login, headers must be defined');
       }
       this.config = { ...this.config, headers }
     }
     if (loginMethod === LoginMethod.frontendOnly) {
       if (tenant === undefined) {
-        throw new Error('When using frontendOnly login, tenant must be defined')
+        throw new Error('When using frontendOnly login, tenant must be defined');
       }
       postData = { tenant_id: tenant, user_jwt: userJwt };
     }
@@ -87,13 +87,13 @@ export class PermitElements {
 
     if (loginMethod === LoginMethod.frontendOnly) {
       if (userJwt === undefined) {
-        throw new Error('When using frontendOnly login, userJwt must be defined')
+        throw new Error('When using frontendOnly login, userJwt must be defined');
       }
       if (loginUrl !== undefined) {
-        console.warn('When using frontendOnly login, loginUrl will be ignored')
+        console.warn('When using frontendOnly login, loginUrl will be ignored');
       }
       if (envId === undefined) {
-        throw new Error('When using frontendOnly login, envId must be defined')
+        throw new Error('When using frontendOnly login, envId must be defined');
       }
       loginUrl = `${PERMIT_API_URL}/v2/auth/${envId}/elements_fe_login_as`;
       this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt });
@@ -101,8 +101,8 @@ export class PermitElements {
 
     if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers });
-    } 
-    if (loginMethod === LoginMethod.cookie && tenant !== undefined){
+    }
+    if (loginMethod === LoginMethod.cookie && tenant !== undefined) {
       if (loginUrl.includes('?')) {
         iframeUrl = `${loginUrl}&tenant=${tenant}`
       } else {
