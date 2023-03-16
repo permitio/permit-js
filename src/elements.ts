@@ -3,7 +3,7 @@ import { LoginInterface, LoginMethod } from './types'
 
 const PERMIT_URL = new RegExp('^https:\/\/([a-z0-9]{32}\.|)embed\(\.api|)(\.stg|)\.permit\.io$');
 const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:.000');
-
+const PERMIT_API_URL = "https://api.permit.io";
 export class PermitElements {
   config?: AxiosRequestConfig;
   axios: AxiosInstance;
@@ -41,8 +41,8 @@ export class PermitElements {
       this.config = { ...this.config, headers }
     }
     if (loginMethod === LoginMethod.frontendOnly) {
-      if (userJwt === undefined) {
-        throw new Error('When using frontendOnly login, userJwt must be defined')
+      if (tenant === undefined) {
+        throw new Error('When using frontendOnly login, tenant must be defined')
       }
       postData = { tenant_id: tenant, user_jwt: userJwt };
     }
@@ -79,6 +79,12 @@ export class PermitElements {
       return Promise.resolve(false);
     }
     let iframeUrl = '';
+    if (loginMethod === LoginMethod.bearer || loginMethod === LoginMethod.header || loginMethod === LoginMethod.cookie) {
+      if (loginUrl === undefined) {
+        throw new Error('When using bearer, header or cookie login, loginUrl must be defined')
+      }
+    }
+
     if (loginMethod === LoginMethod.frontendOnly) {
       if (userJwt === undefined) {
         throw new Error('When using frontendOnly login, userJwt must be defined')
@@ -89,14 +95,14 @@ export class PermitElements {
       if (envId === undefined) {
         throw new Error('When using frontendOnly login, envId must be defined')
       }
-      loginUrl = `https://api.permit.io/v2/auth/${envId}/elements_fe_login_as`;
+      loginUrl = `${PERMIT_API_URL}/v2/auth/${envId}/elements_fe_login_as`;
       this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt });
     }
 
     if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers });
     } 
-    if (loginMethod === LoginMethod.cookie){
+    if (loginMethod === LoginMethod.cookie && tenant !== undefined){
       if (loginUrl.includes('?')) {
         iframeUrl = `${loginUrl}&tenant=${tenant}`
       } else {
