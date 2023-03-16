@@ -40,9 +40,9 @@ export class PermitElements {
       }
       this.config = { ...this.config, headers }
     }
-    if (loginMethod === LoginMethod.serverless) {
+    if (loginMethod === LoginMethod.frontendOnly) {
       if (userJwt === undefined) {
-        throw new Error('When using header login, userJwt must be defined')
+        throw new Error('When using frontendOnly login, userJwt must be defined')
       }
       postData = { tenant_id: tenant, user_jwt: userJwt };
     }
@@ -79,15 +79,15 @@ export class PermitElements {
       return Promise.resolve(false);
     }
     let iframeUrl = '';
-    if (loginMethod === LoginMethod.serverless) {
+    if (loginMethod === LoginMethod.frontendOnly) {
       if (userJwt === undefined) {
-        throw new Error('When using serverless login, userJwt must be defined')
+        throw new Error('When using frontendOnly login, userJwt must be defined')
       }
       if (loginUrl !== undefined) {
-        console.warn('When using serverless login, loginUrl will be ignored')
+        console.warn('When using frontendOnly login, loginUrl will be ignored')
       }
       if (envId === undefined) {
-        throw new Error('When using serverless login, envId must be defined')
+        throw new Error('When using frontendOnly login, envId must be defined')
       }
       loginUrl = `https://api.permit.io/v2/auth/${envId}/elements_fe_login_as`;
       this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt });

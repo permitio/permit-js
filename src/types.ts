@@ -3,7 +3,7 @@ export enum LoginMethod {
   bearer = 'bearer',
   header = 'header',
   cookie = 'cookie',
-  serverless = 'serverless',
+  frontendOnly = 'frontendOnly',
 }
 export interface LoginInterface {
   loginMethod: LoginMethod
