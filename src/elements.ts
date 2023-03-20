@@ -50,7 +50,12 @@ export class PermitElements {
     return this.axios
       .post(loginUrl, postData, this.config)
       .then((response) => {
-        return response.data.url;
+        if (loginMethod === LoginMethod.frontendOnly) 
+          {
+            return response.data.redirect_url;
+          }else {
+            return response.data.url;
+          }
       })
       .catch((error) => {
         this.isConnected = false;
@@ -96,7 +101,7 @@ export class PermitElements {
         throw new Error('When using frontendOnly login, envId must be defined');
       }
       loginUrl = `${PERMIT_API_URL}/v2/auth/${envId}/elements_fe_login_as`;
-      this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt });
+      iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt });
     }
 
     if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {
