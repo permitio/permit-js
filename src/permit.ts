@@ -1,11 +1,14 @@
 import { PermitElements } from "./elements";
 import { Elements } from "./types";
+import { Proxy } from "./proxy";
 
 class Permit {
   elements: Elements;
+  proxy: Proxy;
 
   constructor() {
     this.elements = new PermitElements();
+    this.proxy = new Proxy();
   }
 
 
