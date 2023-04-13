@@ -39,24 +39,28 @@ export interface getInterface {
 export interface postInterface {
   url: string;
   data?: any;
+  params?: any;
   headers?: any;
 }
 
 export interface putInterface {
   url: string;
   data?: any;
+  params?: any;
   headers?: any;
 }
 
 export interface deleteInterface {
   url: string;
   data?: any;
+  params?: any;
   headers?: any;
 }
 
 export interface patchInterface {
   url: string;
   data?: any;
+  params?: any;
   headers?: any;
 }
 

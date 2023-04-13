@@ -17,21 +17,21 @@ class PermitProxy {
         const fullUrl = `${this.proxyUrl}${url}`;   
         return axios.get(fullUrl, {params, headers});
     }
-    post({url, data, headers}: postInterface) {
+    post({url, data, headers, params}: postInterface) {
         const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.post(fullUrl, data, {headers});
+        return axios.post(fullUrl, data, {params, headers});
     }
-    put({url, data, headers}: putInterface) {
+    put({url, data, headers, params}: putInterface) {
         const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.put(fullUrl, data, {headers});
+        return axios.put(fullUrl, data, {params, headers});
     }
-    delete({url, data, headers}: deleteInterface) {
+    delete({url, data, headers, params}: deleteInterface) {
         const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.delete(fullUrl, {data, headers});
+        return axios.delete(fullUrl, {params, data, headers});
     }
-    patch({url, data, headers}: patchInterface) {
+    patch({url, data, headers, params}: patchInterface) {
         const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.patch(fullUrl, data, {headers});
+        return axios.patch(fullUrl, data, {params, headers});
     }
 }
 
