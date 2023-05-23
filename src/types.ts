@@ -14,6 +14,8 @@ export interface LoginInterface {
   headers?: Record<string, string>
   userJwt?: string
   envId?: string
+  userKeyClaim?: string
+  permitApiUrl?: string
 }
 
 export interface FoAzInterface {

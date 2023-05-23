@@ -23,6 +23,7 @@ export class PermitElements {
     token,
     headers,
     userJwt,
+    userKeyClaim,
   }: LoginInterface) => {
     let postData: any = { tenant: tenant };
     if (loginMethod === LoginMethod.bearer) {
@@ -45,6 +46,13 @@ export class PermitElements {
         throw new Error('When using frontendOnly login, tenant must be defined');
       }
       postData = { tenant_id: tenant, user_jwt: userJwt };
+      if (userKeyClaim !== undefined) {
+        postData = { ...postData, user_key_claim: userKeyClaim };
+      }
+    } else {
+      if (userKeyClaim !== undefined) {
+        console.warn('userKeyClaim will be used only when using frontendOnly login method');
+      }
     }
 
     return this.axios
@@ -72,7 +80,9 @@ export class PermitElements {
     token,
     headers,
     userJwt,
-    envId
+    envId,
+    userKeyClaim,
+    permitApiUrl = PERMIT_API_URL,
   }: LoginInterface): Promise<boolean> => {
     if (this.isConnected) {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
@@ -100,12 +110,12 @@ export class PermitElements {
       if (envId === undefined) {
         throw new Error('When using frontendOnly login, envId must be defined');
       }
-      loginUrl = `${PERMIT_API_URL}/v2/auth/${envId}/elements_fe_login_as`;
-      iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt });
+      loginUrl = `${permitApiUrl}/v2/auth/${envId}/elements_fe_login_as`;
+      iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt, userKeyClaim });
     }
 
     if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {
-      iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers });
+      iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers, userKeyClaim });
     }
     if (loginMethod === LoginMethod.cookie && tenant !== undefined) {
       if (loginUrl.includes('?')) {
