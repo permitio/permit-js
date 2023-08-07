@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import { LoginInterface, LoginMethod } from './types'
+import { ApproveInterface, LoginInterface, LoginMethod } from './types'
 
 const PERMIT_URL = new RegExp('^https:\/\/([a-z0-9]{32}\.|)embed\(\.api|)(\.stg|)\.permit\.io$');
 const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:.000');
@@ -158,13 +158,36 @@ export class PermitElements {
 
   }
 
+  approve = async ({inviteCode, email, token, envId, attributes = {}}: ApproveInterface) => {
+    const cleanEnvId = envId.replace(/-/g, '');
+    const approveUrl = `https://${cleanEnvId}.embed.api.permit.io/v2/auth/${cleanEnvId}/user_invites/${inviteCode}/approve`;
+    const params = {
+      email: email,
+      attributes: attributes,
+    }
+    this.config = {
+      ...this.config,
+      headers: { Authorization: `Bearer ${token}` }
+    }
+    return this.axios
+      .post(approveUrl, params, this.config)
+      .then((response) => {
+        return response.data;
+      })
+      .catch((error) => {
+        console.error(error);
+        throw new Error('Error while trying to approve invite');
+      });
+  }
+
+
   logout = async (logoutCustomUrl?: string) => {
     let logoutUrl = '';
     if (logoutCustomUrl) {
       logoutUrl = logoutCustomUrl;
     } else {
-      const CleanEnvId = this.me?.actor?.env_id.replace(/-/g, '');
-      logoutUrl = `https://${CleanEnvId}.embed.api.permit.io/v2/auth/logout`;
+      const cleanEnvId = this.me?.actor?.env_id.replace(/-/g, '');
+      logoutUrl = `https://${cleanEnvId}.embed.api.permit.io/v2/auth/logout`;
     }
     // add iframe to logout
     const iframe = document.createElement('iframe');
