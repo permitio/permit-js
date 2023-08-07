@@ -18,6 +18,14 @@ export interface LoginInterface {
   permitApiUrl?: string
 }
 
+export interface ApproveInterface {
+  inviteCode: string
+  email: string
+  token: string
+  envId: string
+  attributes?: Object
+}
+
 export interface FoAzInterface {
   proxyId: string
   token: string
@@ -25,6 +33,7 @@ export interface FoAzInterface {
 
 export interface Elements {
   login: ({}: LoginInterface) => Promise<boolean>
+  approve: ({inviteCode, email, token, envId, attributes}: ApproveInterface) => Promise<any>
   logout: (logoutUrl?: string) => Promise<boolean>
 }
 
