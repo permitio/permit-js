@@ -15,12 +15,12 @@ class Permit {
 }
 
 const permit_init = () => {
-  if (window._permit) {
-    console.warn("Permit is already initialized");
-    return window._permit;
+  if (typeof window === 'undefined') {
+    console.warn("Running Permit outside of a browser environment. \nConsider using permitio node package or importing only the parts you need");
+    return new Permit();
   }
-  window._permit = new Permit();
-  return window._permit;
+  else
+    return window._permit || (window._permit = new Permit());
 }
 
 
