@@ -15,7 +15,6 @@ class Permit {
 }
 
 const permit_init = () => {
-  console.info("permit_init");
   if (typeof window === 'undefined') {
     console.warn("Running Permit outside of a browser environment. \nConsider using permitio node package or importing only the parts you need");
     return new Permit();
