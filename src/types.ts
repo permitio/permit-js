@@ -23,6 +23,7 @@ export interface ApproveInterface {
   email: string
   token: string
   envId: string
+  user_key_claim?: string
   attributes?: Object
 }
 

@@ -158,11 +158,12 @@ export class PermitElements {
 
   }
 
-  approve = async ({inviteCode, email, token, envId, attributes = {}}: ApproveInterface) => {
+  approve = async ({inviteCode, email, token, envId, user_key_claim="sub", attributes = {}}: ApproveInterface) => {
     const cleanEnvId = envId.replace(/-/g, '');
     const approveUrl = `https://${cleanEnvId}.embed.api.permit.io/v2/auth/${cleanEnvId}/user_invites/${inviteCode}/approve`;
     const params = {
       email: email,
+      user_key_claim: user_key_claim,
       attributes: attributes,
     }
     this.config = {
