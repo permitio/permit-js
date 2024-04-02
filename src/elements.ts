@@ -1,19 +1,17 @@
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import ky from 'ky';
 import { ApproveInterface, LoginInterface, LoginMethod } from './types'
 
 const PERMIT_URL = new RegExp('^https:\/\/([a-z0-9]{32}\.|)embed\(\.api|)(\.stg|)\.permit\.io$');
 const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:.000');
 const PERMIT_API_URL = "https://api.permit.io";
 export class PermitElements {
-  config?: AxiosRequestConfig;
-  axios: AxiosInstance;
+  config?: RequestInit;
   isConnected: boolean;
   me?: any;
   isDev = false;
   constructor() {
-    this.config = {}
+    this.config = { credentials: 'include' }
     this.isConnected = false;
-    this.axios = axios.create({ withCredentials: true });
   }
 
   loginWithAjax = async ({
@@ -32,14 +30,14 @@ export class PermitElements {
       }
       this.config = {
         ...this.config,
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { ...this.config.headers, Authorization: `Bearer ${token}` }
       }
     }
     if (loginMethod === LoginMethod.header) {
       if (headers === undefined) {
         throw new Error('When using header login, headers must be defined');
       }
-      this.config = { ...this.config, headers }
+      this.config = { ...this.config, headers: { ...headers } }
     }
     if (loginMethod === LoginMethod.frontendOnly) {
       if (tenant === undefined) {
@@ -55,15 +53,14 @@ export class PermitElements {
       }
     }
 
-    return this.axios
-      .post(loginUrl, postData, this.config)
-      .then((response) => {
-        if (loginMethod === LoginMethod.frontendOnly) 
-          {
-            return response.data.redirect_url;
-          }else {
-            return response.data.url;
-          }
+    return ky.post(loginUrl, { json: postData, ...this.config })
+      .json()
+      .then((data: any) => {
+        if (loginMethod === LoginMethod.frontendOnly) {
+          return data.redirect_url;
+        } else {
+          return data.url;
+        }
       })
       .catch((error) => {
         this.isConnected = false;
@@ -71,7 +68,6 @@ export class PermitElements {
         throw new Error('Error while trying to login, make sure that you\'ve created a login as route in your application and passed the right credentials');
       });
   }
-
 
   login = async ({
     loginUrl,
@@ -170,10 +166,10 @@ export class PermitElements {
       ...this.config,
       headers: { Authorization: `Bearer ${token}` }
     }
-    return this.axios
-      .post(approveUrl, params, this.config)
-      .then((response) => {
-        return response.data;
+    return ky
+      .post(approveUrl, {json: params, ...this.config}).json()
+      .then((data) => {
+        return data;
       })
       .catch((error) => {
         console.error(error);
