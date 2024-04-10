@@ -1,6 +1,5 @@
 import { deleteInterface, FoAzInterface, getInterface, patchInterface, postInterface, putInterface } from './types';
-import axios from 'axios';
-
+import ky from 'ky';
 
 
 class PermitProxy {
@@ -14,24 +13,24 @@ class PermitProxy {
     }
     
     get({url, params, headers}: getInterface) {
-        const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.get(fullUrl, {params, headers});
+        const fullUrl = `${this.proxyUrl}${url}`;
+        return ky.get(fullUrl, {searchParams: params, headers});
     }
     post({url, data, headers, params}: postInterface) {
         const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.post(fullUrl, data, {params, headers});
+        return ky.post(fullUrl, {json: data, searchParams: params, headers});
     }
     put({url, data, headers, params}: putInterface) {
-        const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.put(fullUrl, data, {params, headers});
+        const fullUrl = `${this.proxyUrl}${url}`;
+        return ky.put(fullUrl, {json: data, searchParams: params, headers});
     }
     delete({url, data, headers, params}: deleteInterface) {
-        const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.delete(fullUrl, {params, data, headers});
+        const fullUrl = `${this.proxyUrl}${url}`;
+        return ky.delete(fullUrl, {json: data, searchParams: params, headers});
     }
     patch({url, data, headers, params}: patchInterface) {
-        const fullUrl = `${this.proxyUrl}${url}`;   
-        return axios.patch(fullUrl, data, {params, headers});
+        const fullUrl = `${this.proxyUrl}${url}`;
+        return ky.patch(fullUrl, {json: data, searchParams: params, headers});
     }
 }
 
