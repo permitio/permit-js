@@ -89,7 +89,7 @@ export class PermitElements {
     if (checkIframe) {
       return Promise.resolve(false);
     }
-    let iframeUrl = '';
+    let iframeUrl = loginUrl;
     if (loginMethod === LoginMethod.bearer || loginMethod === LoginMethod.header || loginMethod === LoginMethod.cookie) {
       if (loginUrl === undefined) {
         throw new Error('When using bearer, header or cookie login, loginUrl must be defined')
@@ -119,6 +119,8 @@ export class PermitElements {
       } else {
         iframeUrl = `${loginUrl}?tenant=${tenant}`
       }
+    } else {
+      iframeUrl = loginUrl;
     }
 
     const iframe = document.createElement('iframe');
