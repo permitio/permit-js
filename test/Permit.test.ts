@@ -1,17 +1,17 @@
-import { Permit } from '../dist/Permit'
+import permit from "../src/index"
 test('Permit exist', () => {
-  expect(new Permit()).toBeInstanceOf(Permit)
+  expect(permit).toBeInstanceOf(Object)
 })
 
 test('Permit has elements', () => {
-  expect(new Permit().elements).toBeInstanceOf(Object)
+  expect(permit.elements).toBeInstanceOf(Object)
 })
 
 test('Permit elements has login', () => {
-  expect(new Permit().elements.login).toBeInstanceOf(Function)
+  expect(permit.elements.login).toBeInstanceOf(Function)
 })
 
 test('Permit elements has logout', () => {
-  expect(new Permit().elements.logout).toBeInstanceOf(Function)
+  expect(permit.elements.logout).toBeInstanceOf(Function)
 }
 )
