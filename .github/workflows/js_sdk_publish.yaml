@@ -1,8 +1,8 @@
 name: Release permit JS SDK
 
-on: push
-  # release:
-  #   types: [published]
+on:
+  release:
+    types: [published]
 
 jobs:
   publish_js_sdk:
@@ -32,8 +32,8 @@ jobs:
           sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
           cat package.json
 
-      # - name: Publish to npm
-      #   run: npm publish
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
