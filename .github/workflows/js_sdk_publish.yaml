@@ -1,8 +1,8 @@
 name: Release permit JS SDK
 
-on:
-  release:
-    types: [published]
+on: push
+  # release:
+  #   types: [published]
 
 jobs:
   publish_js_sdk:
@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+          scope: '@permitio'
           token: ${{ secrets.NPM_TOKEN }}
             
       - name: Install dependencies
@@ -29,11 +30,12 @@ jobs:
       
       - name: Bump version in package.json
         run: |
-          sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
+          #sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
+          sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"0.4.7\"/" package.json
           cat package.json
 
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
