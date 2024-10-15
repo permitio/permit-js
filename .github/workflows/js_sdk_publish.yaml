@@ -33,6 +33,11 @@ jobs:
           #sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
           sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"0.4.7\"/" package.json
           cat package.json
+      
+      - name: Regenerate package-lock.json
+        run: |
+          npm install
+          cat package-lock.json
 
       - name: Publish to npm
         run: npm publish --access public
