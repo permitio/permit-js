@@ -18,10 +18,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          #registry-url: 'https://registry.npmjs.org/'
-          #scope: '@permitio'
+          registry-url: 'https://registry.npmjs.org/'
+          scope: '@permitio'
           token: ${{ secrets.NPM_TOKEN }}
-            
+
+      - name: Bump version in package.json
+        run: |
+          #sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
+          sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"0.4.7\"/" package.json
+          cat package.json
+
       - name: Install dependencies
         run: npm install
       
@@ -31,23 +37,12 @@ jobs:
       - name: Build the project
         run: npm run build
       
-      - name: Bump version in package.json
-        run: |
-          #sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
-          sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"0.4.7\"/" package.json
-          cat package.json
-      
-      - name: Regenerate package-lock.json
-        run: |
-          npm install
-          cat package-lock.json
-
-      # - name: Publish to npm
-      #   run: npm publish --access public
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # - name: Regenerate package-lock.json
+      #   run: |
+      #     npm install
+      #     cat package-lock.json
 
       - name: Publish to npm
-        uses: JS-DevTools/npm-publish@v3
-        with:
-          token: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
