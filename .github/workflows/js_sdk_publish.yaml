@@ -36,6 +36,13 @@ jobs:
       #     npm install
       #     cat package-lock.json
 
+      - name: Configure .npmrc
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          echo "@permitio:registry=https://registry.npmjs.org/" >> ~/.npmrc
+          echo "always-auth=true" >> ~/.npmrc
+
+
       - name: Bump version in package.json
         run: |
           #sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
