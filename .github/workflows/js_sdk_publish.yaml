@@ -41,7 +41,7 @@ jobs:
           #sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
           sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"0.4.7\"/" package.json
           cat package.json
-          cat ~/.npmrc
+          cat /home/runner/work/_temp/.npmrc
 
       - name: Publish to npm
         run: npm publish --access public
