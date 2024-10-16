@@ -38,9 +38,9 @@ jobs:
 
       - name: Configure .npmrc
         run: |
-          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
-          echo "@permitio:registry=https://registry.npmjs.org/" >> ~/.npmrc
-          echo "always-auth=true" >> ~/.npmrc
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > /home/runner/work/_temp/.npmrc
+          echo "@permitio:registry=https://registry.npmjs.org/" >> /home/runner/work/_temp/.npmrc
+          echo "always-auth=true" >> /home/runner/work/_temp/.npmrc
 
 
       - name: Bump version in package.json
