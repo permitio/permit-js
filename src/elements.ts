@@ -1,5 +1,6 @@
 import ky from 'ky';
 import { ApproveInterface, LoginInterface, LoginMethod } from './types'
+import {sendTokenToIframe} from "./sendToken";
 
 const PERMIT_URL = new RegExp('^https:\/\/([a-z0-9]{32}\.|)embed\(\.api|)(\.stg|)\.permit\.io$');
 const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:.000');
@@ -33,6 +34,17 @@ export class PermitElements {
         headers: { ...this.config.headers, Authorization: `Bearer ${token}` }
       }
     }
+    if (loginMethod === LoginMethod.headerWithToken) {
+      if (token === undefined) {
+        throw new Error('When using bearer login, token must be defined');
+      }
+      this.config = {
+        ...this.config,
+        headers: { ...this.config.headers, Authorization: `Bearer ${token}` }
+      }
+    }
+
+
     if (loginMethod === LoginMethod.header) {
       if (headers === undefined) {
         throw new Error('When using header login, headers must be defined');
@@ -108,6 +120,18 @@ export class PermitElements {
       }
       loginUrl = `${permitApiUrl}/v2/auth/${envId}/elements_fe_login_as`;
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt, userKeyClaim });
+    }
+
+    if (loginMethod === LoginMethod.headerWithToken) {
+          const tokenWithOutCookie = await this.loginWithAjax({loginUrl, loginMethod, tenant, token, headers, userKeyClaim});
+          sendTokenToIframe( tokenWithOutCookie)
+
+          const iframeEl = document.querySelector('iframe');
+          iframeEl?.contentWindow?.postMessage(
+              {type: 'permitToken', permitToken: tokenWithOutCookie},
+              '*' // Use specific origin in production
+          );
+          return Promise.resolve(true);
     }
 
     if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {

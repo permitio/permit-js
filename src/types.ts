@@ -4,6 +4,7 @@ export enum LoginMethod {
   header = 'header',
   cookie = 'cookie',
   frontendOnly = 'frontendOnly',
+  headerWithToken = 'headerWithToken'
 }
 
 export interface LoginInterface {
