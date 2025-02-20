@@ -1,6 +1,9 @@
 
+const TIME_TIMEOUT = 1200;
+const MAX_ATTEMPTS = 20;
+const TIME_INTERVAL = 400;
 
-export const sendTokenToIframe = (token: string) => {
+export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
     let tokenSent = false;
 
     const iframeRef = document?.querySelector('iframe');
@@ -9,18 +12,18 @@ export const sendTokenToIframe = (token: string) => {
     if (!iframeRef) {
         console.error("Iframe not found");
         const timer = setTimeout(() => {
-            sendTokenToIframe(token)
+            sendTokenToIframe(token,elementIframeUrl)
             clearTimeout(timer)
-        }, 1200)
+        }, TIME_TIMEOUT)
         return;
     }
 
     if (!iframeWindow) {
         console.error("Iframe contentWindow is null");
         const timer = setTimeout(() => {
-            sendTokenToIframe(token)
+            sendTokenToIframe(token,elementIframeUrl)
             clearTimeout(timer)
-        }, 1200)
+        }, TIME_TIMEOUT)
         return;
     }
 
@@ -34,7 +37,6 @@ export const sendTokenToIframe = (token: string) => {
     };
 
     let attempts = 0;
-    const maxAttempts = 20; // Adjust as needed
 
     const interval = setInterval(() => {
         if (tokenSent) {
@@ -42,14 +44,14 @@ export const sendTokenToIframe = (token: string) => {
             return;
         }
 
-        iframeWindow?.postMessage({type: 'permitToken', permitToken: token}, "*");
+        iframeWindow?.postMessage({type: 'permitToken', permitToken: token}, elementIframeUrl);
         window.addEventListener("message", messageListener);
 
         attempts++;
 
-        if (attempts >= maxAttempts) {
+        if (attempts >= MAX_ATTEMPTS) {
             clearInterval(interval);
             console.error("We haven't recognized your element in a while.");
         }
-    }, 400);
+    }, TIME_INTERVAL);
 };
