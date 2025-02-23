@@ -12,7 +12,7 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
     if (!iframeRef) {
         console.error("Iframe not found");
         const timer = setTimeout(() => {
-            sendTokenToIframe(token,elementIframeUrl)
+            sendTokenToIframe(token, elementIframeUrl)
             clearTimeout(timer)
         }, TIME_TIMEOUT)
         return;
@@ -21,7 +21,7 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
     if (!iframeWindow) {
         console.error("Iframe contentWindow is null");
         const timer = setTimeout(() => {
-            sendTokenToIframe(token,elementIframeUrl)
+            sendTokenToIframe(token, elementIframeUrl)
             clearTimeout(timer)
         }, TIME_TIMEOUT)
         return;
@@ -43,7 +43,7 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
             clearInterval(interval);
             return;
         }
-
+//
         iframeWindow?.postMessage({type: 'permitToken', permitToken: token}, elementIframeUrl);
         window.addEventListener("message", messageListener);
 
