@@ -134,24 +134,12 @@ export class PermitElements {
           const tokenWithOutCookie = await this.loginWithAjax({loginUrl, loginMethod, tenant, token, headers, userKeyClaim});
           sendTokenToIframe( tokenWithOutCookie,elementIframeUrl)
 
-          const iframeEl = document.querySelector('iframe');
-          iframeEl?.contentWindow?.postMessage(
-              {type: 'permitToken', permitToken: tokenWithOutCookie},
-              '*' // Use specific origin in production
-          );
-          return Promise.resolve(true);
     }
 
     if (loginMethod === LoginMethod.supportsPrivateBrowserWithCookie && tenant !== undefined&& elementIframeUrl !== undefined) {
       const tokenWithOutCookie = await this.loginWithAjax({loginUrl, loginMethod, tenant, token, headers, userKeyClaim});
       sendTokenToIframe( tokenWithOutCookie,elementIframeUrl);
 
-      const iframeEl = document.querySelector('iframe');
-      iframeEl?.contentWindow?.postMessage(
-          {type: 'permitToken', permitToken: tokenWithOutCookie},
-          '*' // Use specific origin in production
-      );
-      return Promise.resolve(true);
     }
 
     if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {
