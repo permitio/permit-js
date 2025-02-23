@@ -4,8 +4,7 @@ export enum LoginMethod {
   header = 'header',
   cookie = 'cookie',
   frontendOnly = 'frontendOnly',
-  supportsPrivateBrowserWithCookie = 'supportsPrivateBrowserWithCookie',
-  supportsPrivateBrowserWithHeaders = 'supportsPrivateBrowserWithHeaders'
+  supportsPrivateBrowser = 'supportsPrivateBrowser',
 }
 
 export interface LoginInterface {

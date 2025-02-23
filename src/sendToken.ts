@@ -6,8 +6,7 @@ const TIME_INTERVAL = 400;
 export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
     let tokenSent = false;
 
-    const iframeRef = document?.querySelector('iframe');
-    const iframeWindow = iframeRef?.contentWindow;
+    const iframeRef = document?.querySelector(`iframe[src="${elementIframeUrl}"]`);
 
     if (!iframeRef) {
         console.error("Iframe not found");
@@ -17,6 +16,8 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
         }, TIME_TIMEOUT)
         return;
     }
+
+    const iframeWindow = (<HTMLIFrameElement> iframeRef).contentWindow;
 
     if (!iframeWindow) {
         console.error("Iframe contentWindow is null");
@@ -43,7 +44,7 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
             clearInterval(interval);
             return;
         }
-//
+
         iframeWindow?.postMessage({type: 'permitToken', permitToken: token}, elementIframeUrl);
         window.addEventListener("message", messageListener);
 

@@ -34,22 +34,22 @@ export class PermitElements {
         headers: { ...this.config.headers, Authorization: `Bearer ${token}` }
       }
     }
-    if (loginMethod === LoginMethod.supportsPrivateBrowserWithHeaders) {
-      if (token === undefined) {
-        throw new Error('When using bearer login, token must be defined');
-      }
-      this.config = {
-        ...this.config,
-        headers: { ...this.config.headers, Authorization: `Bearer ${token}` }
-      }
-    }
-    if (loginMethod === LoginMethod.supportsPrivateBrowserWithCookie) {
-      this.config = {
-        ...this.config,
-        headers: { ...this.config.headers, }
-      }
-    }
 
+    if (loginMethod === LoginMethod.supportsPrivateBrowser) {
+      if (token) {
+        this.config = {
+          ...this.config,
+          headers: {...this.config.headers, Authorization: `Bearer ${token}`}
+        }
+      }
+      if (headers) {
+        this.config = {...this.config, headers: {...headers}}
+      }
+      this.config = {
+        ...this.config,
+        headers: {...this.config.headers}
+      }
+    }
 
 
     if (loginMethod === LoginMethod.header) {
@@ -130,17 +130,24 @@ export class PermitElements {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt, userKeyClaim });
     }
 
-    if (loginMethod === LoginMethod.supportsPrivateBrowserWithHeaders && elementIframeUrl !== undefined ) {
-          const tokenWithOutCookie = await this.loginWithAjax({loginUrl, loginMethod, tenant, token, headers, userKeyClaim});
-          sendTokenToIframe( tokenWithOutCookie,elementIframeUrl)
+    if (loginMethod === LoginMethod.supportsPrivateBrowser) {
+      if (!elementIframeUrl) {
+        throw new Error('When using supportsPrivateBrowser login, elementIframeUrl must be defined');
+      }
+      const tokenWithOutCookie = await this.loginWithAjax({
+        loginUrl,
+        loginMethod,
+        tenant,
+        token,
+        headers,
+        userKeyClaim
+      });
 
+      sendTokenToIframe(tokenWithOutCookie, elementIframeUrl)
+      return Promise.resolve(true);
     }
 
-    if (loginMethod === LoginMethod.supportsPrivateBrowserWithCookie && tenant !== undefined&& elementIframeUrl !== undefined) {
-      const tokenWithOutCookie = await this.loginWithAjax({loginUrl, loginMethod, tenant, token, headers, userKeyClaim});
-      sendTokenToIframe( tokenWithOutCookie,elementIframeUrl);
 
-    }
 
     if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers, userKeyClaim });
