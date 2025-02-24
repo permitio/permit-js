@@ -9,7 +9,7 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
     const iframeRef = document?.querySelector(`iframe[src="${elementIframeUrl}"]`);
 
     if (!iframeRef) {
-        console.error("Iframe not found");
+        console.error("Iframe not found please check the URL");
         const timer = setTimeout(() => {
             sendTokenToIframe(token, elementIframeUrl)
             clearTimeout(timer)
