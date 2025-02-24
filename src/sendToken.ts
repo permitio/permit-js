@@ -9,7 +9,7 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
     const iframeRef = document?.querySelector(`iframe[src="${elementIframeUrl}"]`);
 
     if (!iframeRef) {
-        console.error("Iframe not found please check the URL");
+        console.info(`Element iframe with ${elementIframeUrl} not found retrying in ${TIME_TIMEOUT}ms`);
         const timer = setTimeout(() => {
             sendTokenToIframe(token, elementIframeUrl)
             clearTimeout(timer)
@@ -20,7 +20,7 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
     const iframeWindow = (<HTMLIFrameElement> iframeRef).contentWindow;
 
     if (!iframeWindow) {
-        console.error("Iframe contentWindow is null");
+        console.info("Element iframe contentWindow is null");
         const timer = setTimeout(() => {
             sendTokenToIframe(token, elementIframeUrl)
             clearTimeout(timer)
