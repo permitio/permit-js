@@ -4,6 +4,7 @@ export enum LoginMethod {
   header = 'header',
   cookie = 'cookie',
   frontendOnly = 'frontendOnly',
+  supportsPrivateBrowser = 'supportsPrivateBrowser',
 }
 
 export interface LoginInterface {
@@ -16,6 +17,7 @@ export interface LoginInterface {
   envId?: string
   userKeyClaim?: string
   permitApiUrl?: string
+  elementIframeUrl?: string
 }
 
 export interface ApproveInterface {

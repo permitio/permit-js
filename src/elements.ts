@@ -1,5 +1,6 @@
 import ky from 'ky';
 import { ApproveInterface, LoginInterface, LoginMethod } from './types'
+import {sendTokenToIframe} from "./sendToken";
 
 const PERMIT_URL = new RegExp('^https:\/\/([a-z0-9]{32}\.|)embed\(\.api|)(\.stg|)\.permit\.io$');
 const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:.000');
@@ -33,6 +34,24 @@ export class PermitElements {
         headers: { ...this.config.headers, Authorization: `Bearer ${token}` }
       }
     }
+
+    if (loginMethod === LoginMethod.supportsPrivateBrowser) {
+      if (token) {
+        this.config = {
+          ...this.config,
+          headers: {...this.config.headers, Authorization: `Bearer ${token}`}
+        }
+      }
+      if (headers) {
+        this.config = {...this.config, headers: {...headers}}
+      }
+      this.config = {
+        ...this.config,
+        headers: {...this.config.headers}
+      }
+    }
+
+
     if (loginMethod === LoginMethod.header) {
       if (headers === undefined) {
         throw new Error('When using header login, headers must be defined');
@@ -77,6 +96,7 @@ export class PermitElements {
     headers,
     userJwt,
     envId,
+   elementIframeUrl,
     userKeyClaim,
     permitApiUrl = PERMIT_API_URL,
   }: LoginInterface): Promise<boolean> => {
@@ -110,9 +130,29 @@ export class PermitElements {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, userJwt, userKeyClaim });
     }
 
+    if (loginMethod === LoginMethod.supportsPrivateBrowser) {
+      if (!elementIframeUrl) {
+        throw new Error('When using supportsPrivateBrowser login, elementIframeUrl must be defined');
+      }
+      const tokenWithOutCookie = await this.loginWithAjax({
+        loginUrl,
+        loginMethod,
+        tenant,
+        token,
+        headers,
+        userKeyClaim
+      });
+
+      sendTokenToIframe(tokenWithOutCookie, elementIframeUrl)
+      return Promise.resolve(true);
+    }
+
+
+
     if (loginMethod === LoginMethod.header || loginMethod === LoginMethod.bearer) {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers, userKeyClaim });
     }
+
     if (loginMethod === LoginMethod.cookie && tenant !== undefined) {
       if (loginUrl.includes('?')) {
         iframeUrl = `${loginUrl}&tenant=${tenant}`
