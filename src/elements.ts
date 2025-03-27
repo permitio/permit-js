@@ -159,8 +159,6 @@ export class PermitElements {
       } else {
         iframeUrl = `${loginUrl}?tenant=${tenant}`
       }
-    } else {
-      iframeUrl = loginUrl;
     }
 
     const iframe = document.createElement('iframe');
