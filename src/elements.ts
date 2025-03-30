@@ -153,14 +153,15 @@ export class PermitElements {
       iframeUrl = await this.loginWithAjax({ loginUrl, loginMethod, tenant, token, headers, userKeyClaim });
     }
 
-    if (loginMethod === LoginMethod.cookie && tenant !== undefined) {
-      if (loginUrl.includes('?')) {
-        iframeUrl = `${loginUrl}&tenant=${tenant}`
+    if (loginMethod === LoginMethod.cookie) {
+      if (tenant){
+        if (loginUrl.includes('?')) {
+          iframeUrl = `${loginUrl}&tenant=${tenant}`
+        } else {
+          iframeUrl = `${loginUrl}?tenant=${tenant}`
+        }
       } else {
-        iframeUrl = `${loginUrl}?tenant=${tenant}`
-      }
-    } else {
-      iframeUrl = loginUrl;
+        iframeUrl = loginUrl;
     }
 
     const iframe = document.createElement('iframe');
