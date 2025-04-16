@@ -35,10 +35,10 @@ jobs:
           echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
           echo "Checking npm authentication..."
           npm whoami
-          echo "Checking npm token permissions..."
-          npm token list
           echo "Checking package access..."
-          npm access ls-packages
+          npm access ls-collaborators @permitio/permit-js
+          echo "Checking if package exists..."
+          npm view @permitio/permit-js
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
