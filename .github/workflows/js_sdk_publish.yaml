@@ -36,7 +36,19 @@ jobs:
       #     sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
       #     cat package.json
 
-      - name: Publish to npm
-        run: npm publish --tag next --access public
+      - name: Debug npm configuration
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          echo "Checking npm authentication..."
+          npm whoami
+          echo "Checking package.json..."
+          cat package.json
+          echo "Checking npm configuration..."
+          npm config list
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # - name: Publish to npm
+      #   run: npm publish --tag next --access public
+      #   env:
+      #     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
