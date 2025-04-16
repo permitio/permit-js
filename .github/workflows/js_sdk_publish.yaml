@@ -15,6 +15,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          token: ${{ secrets.NPM_TOKEN }}
             
       - name: Install dependencies
         run: npm install
@@ -33,5 +35,4 @@ jobs:
       - name: Publish to npm
         run: npm publish --tag next
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
