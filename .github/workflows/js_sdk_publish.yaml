@@ -1,8 +1,8 @@
 name: Release permit JS SDK
 
-on:
-  release:
-    types: [published]
+on: push
+  # release:
+  #   types: [published]
 
 jobs:
   publish_js_sdk:
@@ -33,7 +33,7 @@ jobs:
           cat package.json
 
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --tag next
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
