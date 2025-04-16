@@ -36,7 +36,9 @@ jobs:
           echo "Checking npm authentication..."
           npm whoami
           echo "Checking package access..."
-          npm access ls-collaborators @permitio/permit-js
+          npm access list collaborators @permitio/permit-js
+          echo "Checking package status..."
+          npm access get status @permitio/permit-js
           echo "Checking if package exists..."
           npm view @permitio/permit-js
         env:
