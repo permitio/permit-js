@@ -15,8 +15,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-          token: ${{ secrets.NPM_TOKEN }}
             
       - name: Install dependencies
         run: npm install
@@ -34,12 +32,15 @@ jobs:
 
       - name: Debug npm authentication
         run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
           echo "Checking npm authentication..."
           npm whoami
           echo "Checking npm token permissions..."
           npm token list
           echo "Checking package access..."
           npm access ls-packages
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # - name: Publish to npm
       #   run: npm publish --tag next
