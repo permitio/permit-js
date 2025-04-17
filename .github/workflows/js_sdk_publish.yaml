@@ -4,9 +4,9 @@ on: push
   # release:
   #   types: [published]
 
-permissions:
-  contents: read
-  id-token: write
+# permissions:
+#   contents: read
+#   id-token: write
 
 jobs:
   publish_js_sdk:
@@ -36,19 +36,19 @@ jobs:
       #     sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
       #     cat package.json
 
-      - name: Debug npm configuration
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-          echo "Checking npm authentication..."
-          npm whoami
-          echo "Checking package.json..."
-          cat package.json
-          echo "Checking npm configuration..."
-          npm config list
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # - name: Publish to npm
-      #   run: npm publish --tag next --access public
+      # - name: Debug npm configuration
+      #   run: |
+      #     echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+      #     echo "Checking npm authentication..."
+      #     npm whoami
+      #     echo "Checking package.json..."
+      #     cat package.json
+      #     echo "Checking npm configuration..."
+      #     npm config list
       #   env:
       #     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        run: npm publish --tag next
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
