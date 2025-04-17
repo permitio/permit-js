@@ -1,12 +1,8 @@
 name: Release permit JS SDK
 
-on: push
-  # release:
-  #   types: [published]
-
-# permissions:
-#   contents: read
-#   id-token: write
+on:
+  release:
+    types: [published]
 
 jobs:
   publish_js_sdk:
@@ -31,32 +27,15 @@ jobs:
       - name: Build the project
         run: npm run build
       
-      # - name: Bump version in package.json
-      #   run: |
-      #     sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
-      #     cat package.json
-
-      # - name: Debug npm configuration
-      #   run: |
-      #     echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-      #     echo "Checking npm authentication..."
-      #     npm whoami
-      #     echo "Checking package.json..."
-      #     cat package.json
-      #     echo "Checking npm configuration..."
-      #     npm config list
-      #   env:
-      #     NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Bump version in package.json
+        run: |
+          sed -i "s/\"version\": \s*\"[^\"]*\"/\"version\": \"${{ github.event.release.tag_name }}\"/" package.json
+          cat package.json
 
       - name: Create .npmrc file
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
           npm config list
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Debug npm authentication
-        run: npm whoami
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
