@@ -1,9 +1,17 @@
 {
   "name": "@permitio/permit-js",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Permitio is a frontend package that makes it easy to use permit abilities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "jest --no-cache --runInBand",
     "prepublish": "tsc",
