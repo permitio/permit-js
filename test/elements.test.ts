@@ -36,6 +36,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  jest.restoreAllMocks()
   jest.useRealTimers()
   delete (global as any).window
   delete (global as any).document
@@ -133,7 +134,7 @@ test("login ignores answers from another origin or another window, then times ou
   expect(elements.me).toBeUndefined()
 
   jest.advanceTimersByTime(3000)
-  await expect(login).rejects.toMatch("Timed out")
+  await expect(login).resolves.toBe(false)
   expect(elements.isConnected).toBe(false)
   expect(listeners.size).toBe(0)
   expect(appended).toHaveLength(0)
@@ -160,7 +161,7 @@ test("the timeout still settles login when the page already removed the iframe",
 
   jest.advanceTimersByTime(3000)
 
-  await expect(login).rejects.toMatch("Timed out")
+  await expect(login).resolves.toBe(false)
   expect(listeners.size).toBe(0)
 })
 
@@ -177,12 +178,14 @@ test("a login that cannot add its iframe stops listening", async () => {
 })
 
 test("a second login while one is in flight joins it", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => undefined)
   const elements = new PermitElements()
   const { login, iframe } = startLogin(elements)
   const second = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie })
 
   expect(second).toBe(login)
   expect(appended).toHaveLength(1)
+  expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("already in progress"))
   post({ origin: "https://embed.api.permit.io", source: iframe.contentWindow, data: { success: true, me: {} } })
   await expect(second).resolves.toBe(true)
 })
@@ -190,9 +193,10 @@ test("a second login while one is in flight joins it", async () => {
 test("logout loads the environment's logout URL and resolves once it has loaded", async () => {
   const elements = new PermitElements()
   elements.isConnected = true
-  elements.me = { actor: { env_id: DASHED_ENV_ID } }
+  elements.me = { actor: { env_id: DASHED_ENV_ID.toUpperCase() } }
 
   const logout = elements.logout()
+  await Promise.resolve()
   const iframe = appended[0]
   expect(iframe.src).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/logout`)
   iframe.onload()
@@ -214,6 +218,7 @@ test("logout uses the API URL of the login", async () => {
   await login
 
   const logout = elements.logout()
+  await Promise.resolve()
   expect(appended[appended.length - 1].src).toBe(`https://${ENV_ID}.embed.api.example.com/v2/auth/logout`)
   jest.advanceTimersByTime(3000)
   await expect(logout).resolves.toBe(true)
@@ -231,6 +236,64 @@ test.each([undefined, { actor: {} }, { actor: { env_id: "example.com/x" } }])(
     expect(elements.isConnected).toBe(false)
   },
 )
+
+test("logout waits for a login in flight, then ends it", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements)
+  const logout = elements.logout()
+
+  post({
+    origin: "https://embed.api.permit.io",
+    source: iframe.contentWindow,
+    data: { success: true, me: { actor: { env_id: ENV_ID } } },
+  })
+  await expect(login).resolves.toBe(true)
+  await Promise.resolve()
+  const logoutIframe = appended[appended.length - 1]
+  expect(logoutIframe.src).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/logout`)
+  logoutIframe.onload()
+
+  await expect(logout).resolves.toBe(true)
+  expect(elements.isConnected).toBe(false)
+})
+
+test("login waits for a logout still loading", async () => {
+  const elements = new PermitElements()
+  elements.me = { actor: { env_id: ENV_ID } }
+  const logout = elements.logout()
+  const logoutIframe = appended[0]
+
+  const login = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie })
+  await Promise.resolve()
+  expect(appended).toEqual([logoutIframe])
+
+  logoutIframe.onload()
+  await logout
+  await new Promise(jest.requireActual("timers").setImmediate)
+  expect(appended).toHaveLength(1)
+  expect(appended[0]).not.toBe(logoutIframe)
+  jest.advanceTimersByTime(3000)
+  await expect(login).resolves.toBe(false)
+})
+
+test("logout with an invalid API URL loads nothing", async () => {
+  const elements = new PermitElements()
+  elements.permitApiUrl = "api.example.com"
+  elements.me = { actor: { env_id: ENV_ID } }
+
+  await expect(elements.logout()).resolves.toBe(true)
+  expect(appended).toHaveLength(0)
+})
+
+test("approve posts to the given deployment", async () => {
+  const elements = new PermitElements()
+
+  await expect(
+    elements.approve({
+      inviteCode: "code", email: "a@example.com", token: "t", envId: ENV_ID, permitApiUrl: "not a url",
+    }),
+  ).rejects.toThrow("permitApiUrl a URL")
+})
 
 test("approve refuses an envId that is not an environment id", async () => {
   const elements = new PermitElements()

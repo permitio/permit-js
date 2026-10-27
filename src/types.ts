@@ -27,6 +27,8 @@ export interface ApproveInterface {
   envId: string
   user_key_claim?: string
   attributes?: Object
+  // The deployment's API URL; defaults to that of the last login, or Permit SaaS.
+  permitApiUrl?: string
 }
 
 export interface FoAzInterface {
