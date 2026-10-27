@@ -30,7 +30,8 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
 
 
     const messageListener = (event: MessageEvent) => {
-        if (event.data && event.data.type === "permitTokenReceived") {
+        // Only the element iframe confirms that it has the token.
+        if (event.source === iframeWindow && event.data?.type === "permitTokenReceived") {
             tokenSent = true;
             clearInterval(interval);
             window.removeEventListener("message", messageListener);

@@ -2,14 +2,60 @@ import ky from 'ky';
 import { ApproveInterface, LoginInterface, LoginMethod } from './types'
 import {sendTokenToIframe} from "./sendToken";
 
-const PERMIT_URL = new RegExp('^https:\/\/([a-z0-9]{32}\.|)embed\(\.api|)(\.stg|)\.permit\.io$');
-const PERMIT_LOCAL_URL = new RegExp('http:\/\/localhost:.000');
+// The embed origins Permit SaaS serves Elements from.
+export const PERMIT_URL = /^https:\/\/([a-z0-9]{32}\.)?embed(\.api)?(\.stg)?\.permit\.io$/;
 const PERMIT_API_URL = "https://api.permit.io";
+// How long the login and logout iframes live; no answer can arrive once one is removed.
+const IFRAME_LIFETIME_MS = 3000;
+const ENV_ID = /^[0-9a-f]{32}$/;
+
+/** An environment id as the embed host spells it (32 hex digits), or undefined. */
+function envIdHex(envId: unknown): string | undefined {
+  const hex = String(envId ?? '').replace(/-/g, '');
+  return ENV_ID.test(hex) ? hex : undefined;
+}
+
+/**
+ * Whether `origin` serves Permit Elements: a Permit SaaS embed origin, or
+ * `<scheme>://<env id>.embed.<host of permitApiUrl>` for a deployment with its own API URL.
+ */
+export function isPermitEmbedOrigin(origin: string, permitApiUrl: string = PERMIT_API_URL): boolean {
+  if (PERMIT_URL.test(origin)) {
+    return true;
+  }
+  let api: URL;
+  let from: URL;
+  try {
+    api = new URL(permitApiUrl);
+    from = new URL(origin);
+  } catch {
+    return false;
+  }
+  const [envId, embed, ...apiHost] = from.hostname.split('.');
+  return from.protocol === api.protocol && from.port === api.port
+    && envIdHex(envId) === envId && embed === 'embed' && apiHost.join('.') === api.hostname;
+}
+
+// The login iframe's error page sends the error URL-encoded; a malformed one is passed on as it is.
+function loginError(error: unknown): string {
+  if (typeof error !== 'string') {
+    return 'Permit Elements login failed';
+  }
+  try {
+    return decodeURIComponent(error);
+  } catch {
+    return error;
+  }
+}
+
 export class PermitElements {
   config?: RequestInit;
   isConnected: boolean;
   me?: any;
   isDev = false;
+  // The API URL of the last login, so logout() and approve() reach the same deployment.
+  permitApiUrl = PERMIT_API_URL;
+  private loginInFlight?: Promise<boolean>;
   constructor() {
     this.config = { credentials: 'include' }
     this.isConnected = false;
@@ -88,7 +134,27 @@ export class PermitElements {
       });
   }
 
-  login = async ({
+  login = (args: LoginInterface): Promise<boolean> => {
+    // A call while a login is in flight joins it instead of starting another.
+    if (this.loginInFlight === undefined) {
+      const done = () => {
+        this.loginInFlight = undefined;
+      };
+      this.loginInFlight = this.startLogin(args).then(
+        (connected) => {
+          done();
+          return connected;
+        },
+        (error) => {
+          done();
+          throw error;
+        },
+      );
+    }
+    return this.loginInFlight;
+  }
+
+  private startLogin = async ({
     loginUrl,
     loginMethod = LoginMethod.cookie,
     tenant,
@@ -104,6 +170,7 @@ export class PermitElements {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
       return Promise.resolve(true);
     }
+    this.permitApiUrl = permitApiUrl;
     // check if the iframe is already created
     const checkIframe = document.getElementById('permit-iframe');
     if (checkIframe) {
@@ -173,34 +240,47 @@ export class PermitElements {
     iframe.style.top = '-10px';
     iframe.style.left = '-10px';
     iframe.src = iframeUrl;
-    return new Promise((resolve, reject) => {
-      window.addEventListener("message", (msg) => {
-        const urlRegex = PERMIT_URL;
-        if (msg.origin.match(urlRegex)) {
-          if (msg.data.success === true) {
-            this.isConnected = true;
-            this.me = msg.data.me;
-            resolve(true);
-          }
-          if (msg.data.success === false) {
-            this.isConnected = false;
-            const errorMsg = decodeURIComponent(msg?.data?.error);
-            reject(errorMsg);
-          }
+    return new Promise<boolean>((resolve, reject) => {
+      const stopListening = () => window.removeEventListener("message", onMessage, false);
+      const onMessage = (msg: MessageEvent) => {
+        // Only our login iframe answers, and only from a Permit embed origin.
+        if (msg.source !== iframe.contentWindow || !isPermitEmbedOrigin(msg.origin, permitApiUrl)) {
+          return;
         }
-      }, false);
-      document.body.appendChild(iframe);
-      this.isConnected = true;
+        if (msg.data?.success === true) {
+          stopListening();
+          this.isConnected = true;
+          this.me = msg.data.me;
+          resolve(true);
+        } else if (msg.data?.success === false) {
+          stopListening();
+          this.isConnected = false;
+          reject(loginError(msg.data.error));
+        }
+      };
+      window.addEventListener("message", onMessage, false);
+      try {
+        document.body.appendChild(iframe);
+      } catch (error) {
+        stopListening();
+        throw error;
+      }
+      // No answer can come once the iframe is gone. After an answer, reject() is a no-op.
       setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 3000);
+        iframe.remove();
+        stopListening();
+        reject('Timed out waiting for the Permit Elements login to answer');
+      }, IFRAME_LIFETIME_MS);
     });
 
   }
 
   approve = async ({inviteCode, email, token, envId, user_key_claim="sub", attributes = {}}: ApproveInterface) => {
-    const cleanEnvId = envId.replace(/-/g, '');
-    const approveUrl = `https://${cleanEnvId}.embed.api.permit.io/v2/auth/${cleanEnvId}/user_invites/${inviteCode}/approve`;
+    const cleanEnvId = envIdHex(envId);
+    if (cleanEnvId === undefined) {
+      throw new Error('approve: envId must be a Permit environment id');
+    }
+    const approveUrl = `${this.embedOrigin(cleanEnvId)}/v2/auth/${cleanEnvId}/user_invites/${encodeURIComponent(inviteCode)}/approve`;
     const params = {
       email: email,
       user_key_claim: user_key_claim,
@@ -223,13 +303,17 @@ export class PermitElements {
 
 
   logout = async (logoutCustomUrl?: string) => {
-    let logoutUrl = '';
-    if (logoutCustomUrl) {
-      logoutUrl = logoutCustomUrl;
-    } else {
-      const cleanEnvId = this.me?.actor?.env_id.replace(/-/g, '');
-      logoutUrl = `https://${cleanEnvId}.embed.api.permit.io/v2/auth/logout`;
+    this.isConnected = false;
+    let logoutUrl = logoutCustomUrl;
+    if (!logoutUrl) {
+      const envId = envIdHex(this.me?.actor?.env_id);
+      if (envId === undefined) {
+        // No Elements login session to end here: a supportsPrivateBrowser login has no `me`.
+        return true;
+      }
+      logoutUrl = `${this.embedOrigin(envId)}/v2/auth/logout`;
     }
+    this.me = undefined;
     // add iframe to logout
     const iframe = document.createElement('iframe');
     iframe.id = 'permit-iframe-logout';
@@ -239,9 +323,22 @@ export class PermitElements {
     iframe.src = logoutUrl;
     iframe.style.top = '-10px';
     iframe.style.left = '-10px';
-    document.body.appendChild(iframe);
-    this.isConnected = false;
-    return Promise.resolve(true);
+    // Resolve once the logout request has completed, so that a login right after it
+    // is not logged out by it.
+    return new Promise<boolean>((resolve) => {
+      const done = () => {
+        iframe.remove();
+        resolve(true);
+      };
+      iframe.onload = done;
+      setTimeout(done, IFRAME_LIFETIME_MS);
+      document.body.appendChild(iframe);
+    });
+  }
+
+  private embedOrigin = (envId: string): string => {
+    const api = new URL(this.permitApiUrl);
+    return `${api.protocol}//${envId}.embed.${api.host}`;
   }
 
   help = () => {
