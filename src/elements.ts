@@ -1,4 +1,4 @@
-import ky from 'ky';
+import ky, { HTTPError } from 'ky';
 import { ApproveInterface, LoginInterface, LoginMethod } from './types'
 import {sendTokenToIframe} from "./sendToken";
 
@@ -10,6 +10,9 @@ const IFRAME_LIFETIME_MS = 3000;
 // How long logout() waits for its request before resolving. Its iframe stays until it has
 // loaded, so a slow request still completes.
 const LOGOUT_WAIT_MS = 10000;
+// ky stops timing a request once its headers arrive, so a failed approve's body read is bounded
+// here. A body still unread then is abandoned, not cancelled.
+const ERROR_BODY_READ_MS = 2000;
 const ENV_ID = /^[0-9a-f]{32}$/;
 
 /** An environment id as the embed host spells it (32 hex digits), or undefined. */
@@ -89,6 +92,70 @@ function loginError(error: unknown): string {
   } catch {
     return error;
   }
+}
+
+function approveErrorMessage(status?: number, detail?: unknown): string {
+  let message = 'Error while trying to approve invite';
+  if (status !== undefined) {
+    message += ` (${status})`;
+  }
+  if (detail === undefined || detail === null || detail === '') {
+    return message;
+  }
+  try {
+    return `${message}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`;
+  } catch {
+    // A detail JSON.stringify throws on (nested deeper than its stack allows) is left out.
+    return message;
+  }
+}
+
+/**
+ * approve() failed after its arguments were accepted (an envId, permitApiUrl or inviteCode it
+ * cannot use is refused first, with a plain Error). Where two copies of this SDK may share a
+ * page, match on `name`, which is 'ApproveError', rather than with instanceof.
+ *
+ * When an error status came back, `status` is that status and `detail` the reason in its JSON
+ * body: the body's `detail` when it has that key (any JSON value, kept as is), else its
+ * `message` when that is a string. The message repeats a reason it can render (not a null or
+ * empty one), which can include the request's and the invite's email.
+ *
+ * `status` undefined means approve() got no usable answer: a network failure, a timeout, an
+ * abort, a success answer whose body is not JSON, or a request ky could not build (a token with
+ * a character a header cannot carry, attributes JSON cannot encode). Only that last one never
+ * reached the backend: any other failure, a 5xx from a gateway included, may come after the
+ * invite was approved.
+ */
+export class ApproveError extends Error {
+  constructor(readonly status?: number, readonly detail?: unknown) {
+    super(approveErrorMessage(status, detail));
+    this.name = 'ApproveError';
+  }
+}
+
+// ApproveError's `detail`, read from an error answer's body; undefined when the body has none or
+// is not read within ERROR_BODY_READ_MS.
+async function errorReason(response: Response): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stalled = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ERROR_BODY_READ_MS);
+  });
+  let body: unknown;
+  try {
+    body = await Promise.race([response.json(), stalled]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (typeof body !== 'object' || body === null) {
+    return undefined;
+  }
+  const fields = body as Record<string, unknown>;
+  if ('detail' in fields) {
+    return fields.detail;
+  }
+  return typeof fields.message === 'string' ? fields.message : undefined;
 }
 
 export class PermitElements {
@@ -352,15 +419,16 @@ export class PermitElements {
       ...this.config,
       headers: { Authorization: `Bearer ${token}` }
     }
-    return ky
-      .post(approveUrl, {json: params, ...this.config}).json()
-      .then((data) => {
-        return data;
-      })
-      .catch((error) => {
-        console.error(error);
-        throw new Error('Error while trying to approve invite');
-      });
+    // ky.post can throw before any request is sent (a header or body it cannot build).
+    try {
+      return await ky.post(approveUrl, {json: params, ...this.config}).json();
+    } catch (error) {
+      console.error(error);
+      if (!(error instanceof HTTPError)) {
+        throw new ApproveError();
+      }
+      throw new ApproveError(error.response.status, await errorReason(error.response));
+    }
   }
 
 
