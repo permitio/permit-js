@@ -96,13 +96,44 @@ test.each([
 
 test.each([
   [`https://${ENV_ID}.embed.api.example.com`, "https://api.example.com", true],
-  [`http://${ENV_ID}.embed.localhost:8000`, "http://localhost:8000", true],
+  ["http://localhost:8000", "http://localhost:8000", true],
+  ["http://127.0.0.1:8000", "http://127.0.0.1:8000", true],
+  [`http://${ENV_ID}.embed.localhost:8000`, "http://localhost:8000", false],
+  ["http://localhost:8001", "http://localhost:8000", false],
+  ["javascript://x", "javascript:alert(1)", false],
   [`https://${ENV_ID}.embed.other.example.com`, "https://api.example.com", false],
   ["https://embed.api.example.com", "https://api.example.com", false],
   [`https://${ENV_ID}.embed.api.example.com:8443`, "https://api.example.com", false],
   [`http://${ENV_ID}.embed.api.example.com`, "https://api.example.com", false],
 ])("a deployment's own embed origin %s, for API %s: %s", (origin, permitApiUrl, accepted) => {
   expect(isPermitEmbedOrigin(origin, permitApiUrl)).toBe(accepted)
+})
+
+test("the origin check accepts a trusted origin exactly as given", () => {
+  expect(isPermitEmbedOrigin("https://embed.example.com", undefined, ["https://embed.example.com"])).toBe(true)
+  expect(isPermitEmbedOrigin("https://embed.example.com:8443", undefined, ["https://embed.example.com"])).toBe(false)
+})
+
+test("login takes an error answer from a trusted origin", async () => {
+  const elements = new PermitElements()
+  const login = elements.login({
+    loginUrl: "https://app.example.com/login",
+    loginMethod: LoginMethod.cookie,
+    permitApiUrl: "https://api.example.com",
+    trustedOrigins: ["https://embed.example.com"],
+  })
+  const iframe = appended[0]
+
+  post({ origin: "https://embed.example.com", source: iframe.contentWindow, data: { success: false, error: "denied" } })
+
+  await expect(login).rejects.toBe("denied")
+})
+
+test("login puts the tenant in its URL as one query value", async () => {
+  const elements = new PermitElements()
+  elements.login({ loginUrl: "https://app.example.com/login?a=1", loginMethod: LoginMethod.cookie, tenant: "t&x=1" })
+
+  expect(appended[0].src).toBe("https://app.example.com/login?a=1&tenant=t%26x%3D1")
 })
 
 test("login resolves on the login iframe's answer", async () => {
@@ -158,6 +189,30 @@ test.each([
   expect(listeners.size).toBe(0)
 })
 
+test("once its iframe is gone, login ignores a message without a source", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements)
+  iframe.remove()
+  iframe.contentWindow = null
+
+  post({ origin: "https://embed.api.permit.io", source: null, data: { success: true, me: {} } })
+  jest.advanceTimersByTime(3000)
+
+  await expect(login).resolves.toBe(false)
+  expect(elements.isConnected).toBe(false)
+})
+
+test("a failed login does not hold up the logout queued behind it", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements)
+  const logout = elements.logout()
+
+  post({ origin: "https://embed.api.permit.io", source: iframe.contentWindow, data: { success: false, error: "no" } })
+
+  await expect(login).rejects.toBe("no")
+  await expect(logout).resolves.toBe(true)
+})
+
 test("the timeout still settles login when the page already removed the iframe", async () => {
   const elements = new PermitElements()
   const { login, iframe } = startLogin(elements)
@@ -202,7 +257,7 @@ test("login, logout and login again run in that order", async () => {
   const again = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie })
 
   post({
-    origin: "https://embed.api.permit.io",
+    origin: `https://${ENV_ID}.embed.api.permit.io`,
     source: iframe.contentWindow,
     data: { success: true, me: { actor: { env_id: ENV_ID } } },
   })
@@ -268,6 +323,38 @@ test("logout loads the environment's logout URL and resolves once it has loaded"
   expect(elements.me).toBeUndefined()
 })
 
+test("logout ends the session on the origin that answered the login", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements, "https://proxy.example.com")
+  post({
+    origin: `https://${ENV_ID}.embed.api.permit.io`,
+    source: iframe.contentWindow,
+    data: { success: true, me: { actor: { env_id: ENV_ID } } },
+  })
+  await login
+
+  const logout = elements.logout()
+  await flush()
+  const logoutIframe = appended[appended.length - 1]
+  expect(logoutIframe.src).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/logout`)
+  logoutIframe.onload()
+  await expect(logout).resolves.toBe(true)
+})
+
+test("logout on a deployment reached on localhost uses its API origin", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements, "http://localhost:8000")
+  post({ origin: "http://localhost:8000", source: iframe.contentWindow, data: { success: true, me: { actor: { env_id: ENV_ID } } } })
+  await expect(login).resolves.toBe(true)
+
+  const logout = elements.logout()
+  await flush()
+  const logoutIframe = appended[appended.length - 1]
+  expect(logoutIframe.src).toBe("http://localhost:8000/v2/auth/logout")
+  logoutIframe.onload()
+  await expect(logout).resolves.toBe(true)
+})
+
 test("logout uses the API URL of the login", async () => {
   const elements = new PermitElements()
   const { login, iframe } = startLogin(elements, "https://api.example.com")
@@ -305,7 +392,7 @@ test("logout waits for a login in flight, then ends it", async () => {
   const logout = elements.logout()
 
   post({
-    origin: "https://embed.api.permit.io",
+    origin: `https://${ENV_ID}.embed.api.permit.io`,
     source: iframe.contentWindow,
     data: { success: true, me: { actor: { env_id: ENV_ID } } },
   })
@@ -354,7 +441,7 @@ test("approve posts to the given deployment", async () => {
     elements.approve({
       inviteCode: "code", email: "a@example.com", token: "t", envId: ENV_ID, permitApiUrl: "not a url",
     }),
-  ).rejects.toThrow("permitApiUrl a URL")
+  ).rejects.toThrow("permitApiUrl an http(s) URL")
 })
 
 test("approve posts to the embed origin of the login's deployment", async () => {
@@ -368,6 +455,41 @@ test("approve posts to the embed origin of the login's deployment", async () => 
   expect(post.mock.calls[0][0]).toBe(
     `https://${ENV_ID}.embed.api.example.com/v2/auth/${ENV_ID}/user_invites/code-1/approve`,
   )
+})
+
+test("approve puts the invite code in its URL as one path segment", async () => {
+  const post = jest.spyOn(ky, "post").mockReturnValue({ json: () => Promise.resolve({ ok: true }) } as never)
+  const elements = new PermitElements()
+
+  await elements.approve({ inviteCode: "../../x?y#z", email: "a@example.com", token: "t", envId: ENV_ID })
+  expect(post.mock.calls[0][0]).toBe(
+    `https://${ENV_ID}.embed.api.permit.io/v2/auth/${ENV_ID}/user_invites/..%2F..%2Fx%3Fy%23z/approve`,
+  )
+})
+
+test.each(["", ".", ".."])("approve refuses the invite code %p", async (inviteCode) => {
+  const post = jest.spyOn(ky, "post")
+  const elements = new PermitElements()
+
+  await expect(
+    elements.approve({ inviteCode, email: "a@example.com", token: "t", envId: ENV_ID }),
+  ).rejects.toThrow("inviteCode must be an invite code")
+  expect(post).not.toHaveBeenCalled()
+})
+
+test("approve after a login posts to the origin that answered it", async () => {
+  const kyPost = jest.spyOn(ky, "post").mockReturnValue({ json: () => Promise.resolve({ ok: true }) } as never)
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements, "https://proxy.example.com")
+  post({
+    origin: `https://${ENV_ID}.embed.api.permit.io`,
+    source: iframe.contentWindow,
+    data: { success: true, me: { actor: { env_id: ENV_ID } } },
+  })
+  await login
+
+  await elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId: ENV_ID })
+  expect(kyPost.mock.calls[0][0]).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/${ENV_ID}/user_invites/code/approve`)
 })
 
 test("approve refuses an envId that is not an environment id", async () => {

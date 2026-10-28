@@ -18,27 +18,56 @@ function envIdHex(envId: unknown): string | undefined {
   return ENV_ID.test(hex) ? hex : undefined;
 }
 
-/** `<scheme>://<env id>.embed.<host of permitApiUrl>`, or undefined for an invalid env id or URL. */
-function embedOriginFor(permitApiUrl: string, envId: unknown): string | undefined {
-  const hex = envIdHex(envId);
-  if (hex === undefined) {
-    return undefined;
-  }
+// An IPv4 or bracketed IPv6 host.
+const IP_HOST = /^(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i;
+
+/** `permitApiUrl` parsed, if it is an http or https URL; otherwise undefined. */
+function apiUrl(permitApiUrl: string): URL | undefined {
   try {
     const api = new URL(permitApiUrl);
-    return `${api.protocol}//${hex}.embed.${api.host}`;
+    return api.protocol === 'https:' || api.protocol === 'http:' ? api : undefined;
   } catch {
     return undefined;
   }
 }
 
+/** A deployment reached on localhost or by IP address serves Elements from its API origin. */
+function servesEmbedFromApiOrigin(api: URL): boolean {
+  return api.hostname === 'localhost' || IP_HOST.test(api.hostname);
+}
+
 /**
- * Whether `origin` serves Permit Elements: a Permit SaaS embed origin, or the embed
- * origin of an environment on the deployment `permitApiUrl` names.
+ * Where the deployment `permitApiUrl` names serves Elements for an environment:
+ * `<scheme>://<env id>.embed.<its host>`, or its own origin on localhost or an IP address.
+ * Undefined for an invalid env id, or for a URL that is not http or https.
  */
-export function isPermitEmbedOrigin(origin: string, permitApiUrl: string = PERMIT_API_URL): boolean {
-  if (PERMIT_URL.test(origin)) {
+function embedOriginFor(permitApiUrl: string, envId: unknown): string | undefined {
+  const hex = envIdHex(envId);
+  const api = apiUrl(permitApiUrl);
+  if (hex === undefined || api === undefined) {
+    return undefined;
+  }
+  return servesEmbedFromApiOrigin(api) ? api.origin : `${api.protocol}//${hex}.embed.${api.host}`;
+}
+
+/**
+ * Whether `origin` serves Permit Elements: a Permit SaaS embed origin, the embed origin of
+ * an environment on the deployment `permitApiUrl` names, or one of `trustedOrigins`.
+ */
+export function isPermitEmbedOrigin(
+  origin: string,
+  permitApiUrl: string = PERMIT_API_URL,
+  trustedOrigins: readonly string[] = [],
+): boolean {
+  if (PERMIT_URL.test(origin) || trustedOrigins.includes(origin)) {
     return true;
+  }
+  const api = apiUrl(permitApiUrl);
+  if (api === undefined) {
+    return false;
+  }
+  if (servesEmbedFromApiOrigin(api)) {
+    return origin === api.origin;
   }
   let from: URL;
   try {
@@ -69,6 +98,8 @@ export class PermitElements {
   isDev = false;
   // The API URL of the last successful login, so logout() and approve() reach its deployment.
   permitApiUrl = PERMIT_API_URL;
+  // The origin that answered the last successful login: it holds the session logout() ends.
+  private sessionOrigin?: string;
   // The login or logout still running, if any: each call waits for the one before it.
   private pending?: Promise<void>;
   constructor() {
@@ -178,6 +209,7 @@ export class PermitElements {
    elementIframeUrl,
     userKeyClaim,
     permitApiUrl = PERMIT_API_URL,
+    trustedOrigins = [],
   }: LoginInterface): Promise<boolean> => {
     if (this.isConnected) {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
@@ -229,11 +261,8 @@ export class PermitElements {
 
     if (loginMethod === LoginMethod.cookie) {
       if (tenant) {
-        if (loginUrl.includes('?')) {
-          iframeUrl = `${loginUrl}&tenant=${tenant}`;
-        } else {
-          iframeUrl = `${loginUrl}?tenant=${tenant}`;
-        }
+        const separator = loginUrl.includes('?') ? '&' : '?';
+        iframeUrl = `${loginUrl}${separator}tenant=${encodeURIComponent(tenant)}`;
       } else {
         iframeUrl = loginUrl;
       }
@@ -249,10 +278,17 @@ export class PermitElements {
     iframe.src = iframeUrl;
     return new Promise<boolean>((resolve, reject) => {
       let answered = false;
+      // The login iframe's window, kept from when it was added: removing the iframe nulls
+      // its contentWindow, which must not then match a message without a source.
+      let frameWindow: Window | null = null;
       const stopListening = () => window.removeEventListener("message", onMessage, false);
       const onMessage = (msg: MessageEvent) => {
         // Only our login iframe answers, and only from a Permit embed origin.
-        if (msg.source !== iframe.contentWindow || !isPermitEmbedOrigin(msg.origin, permitApiUrl)) {
+        if (
+          frameWindow === null
+          || msg.source !== frameWindow
+          || !isPermitEmbedOrigin(msg.origin, permitApiUrl, trustedOrigins)
+        ) {
           return;
         }
         if (msg.data?.success === true) {
@@ -261,6 +297,7 @@ export class PermitElements {
           this.isConnected = true;
           this.me = msg.data.me;
           this.permitApiUrl = permitApiUrl;
+          this.sessionOrigin = msg.origin;
           resolve(true);
         } else if (msg.data?.success === false) {
           answered = true;
@@ -276,6 +313,7 @@ export class PermitElements {
         stopListening();
         throw error;
       }
+      frameWindow = iframe.contentWindow;
       // No answer can come once the iframe is gone: login() resolves false, as for any
       // login that did not connect. After an answer, resolve() is a no-op.
       setTimeout(() => {
@@ -293,12 +331,18 @@ export class PermitElements {
 
   }
 
-  approve = async ({inviteCode, email, token, envId, user_key_claim="sub", attributes = {}, permitApiUrl = this.permitApiUrl}: ApproveInterface) => {
-    const embedOrigin = embedOriginFor(permitApiUrl, envId);
+  approve = async ({inviteCode, email, token, envId, user_key_claim="sub", attributes = {}, permitApiUrl}: ApproveInterface) => {
+    const embedOrigin = permitApiUrl === undefined && this.sessionEnvId() === envIdHex(envId)
+      ? this.sessionOrigin
+      : embedOriginFor(permitApiUrl ?? this.permitApiUrl, envId);
     if (embedOrigin === undefined) {
-      throw new Error('approve: envId must be a Permit environment id, and permitApiUrl a URL');
+      throw new Error('approve: envId must be a Permit environment id, and permitApiUrl an http(s) URL');
     }
-    const approveUrl = `${embedOrigin}/v2/auth/${envIdHex(envId)}/user_invites/${inviteCode}/approve`;
+    if (typeof inviteCode !== 'string' || inviteCode === '' || inviteCode === '.' || inviteCode === '..') {
+      throw new Error('approve: inviteCode must be an invite code');
+    }
+    // One path segment, whatever the code holds.
+    const approveUrl = `${embedOrigin}/v2/auth/${envIdHex(envId)}/user_invites/${encodeURIComponent(inviteCode)}/approve`;
     const params = {
       email: email,
       user_key_claim: user_key_claim,
@@ -323,19 +367,30 @@ export class PermitElements {
   logout = (logoutCustomUrl?: string): Promise<boolean> =>
     this.serialize(() => this.endSession(logoutCustomUrl));
 
+  /** The environment of the current login session, if it has one. */
+  private sessionEnvId(): string | undefined {
+    return this.sessionOrigin === undefined ? undefined : envIdHex(this.me?.actor?.env_id);
+  }
+
   private endSession = async (logoutCustomUrl?: string): Promise<boolean> => {
     this.isConnected = false;
     let logoutUrl = logoutCustomUrl;
     if (!logoutUrl) {
-      const embedOrigin = embedOriginFor(this.permitApiUrl, this.me?.actor?.env_id);
+      // The session lives on the origin that answered its login; a session set some other
+      // way (no login answer seen) is on the environment's embed origin.
+      const embedOrigin = this.sessionEnvId() !== undefined
+        ? this.sessionOrigin
+        : embedOriginFor(this.permitApiUrl, this.me?.actor?.env_id);
       if (embedOrigin === undefined) {
         // No Elements login session to end here: a supportsPrivateBrowser login has no `me`.
         this.me = undefined;
+        this.sessionOrigin = undefined;
         return true;
       }
       logoutUrl = `${embedOrigin}/v2/auth/logout`;
     }
     this.me = undefined;
+    this.sessionOrigin = undefined;
     // add iframe to logout
     const iframe = document.createElement('iframe');
     iframe.id = 'permit-iframe-logout';
@@ -354,7 +409,12 @@ export class PermitElements {
         iframe.remove();
         resolve(true);
       };
-      document.body.appendChild(iframe);
+      try {
+        document.body.appendChild(iframe);
+      } catch (error) {
+        clearTimeout(timer);
+        throw error;
+      }
     });
   }
 

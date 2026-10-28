@@ -16,9 +16,13 @@ export interface LoginInterface {
   userJwt?: string
   envId?: string
   userKeyClaim?: string
-  // The deployment's API URL. Login answers are accepted from its embed origin
-  // (`<env id>.embed.<its host>`), so a deployment other than Permit SaaS must pass it.
+  // The deployment's API URL (http or https). Login answers are accepted from its embed
+  // origin (`<env id>.embed.<its host>`, or the API URL's own origin on localhost or an IP
+  // address), so a deployment other than Permit SaaS must pass it.
   permitApiUrl?: string
+  // More origins a login answer is accepted from, exactly as `event.origin` spells them,
+  // e.g. the origin of a self-hosted deployment's login error page.
+  trustedOrigins?: string[]
   elementIframeUrl?: string
 }
 
