@@ -16,6 +16,8 @@ export interface LoginInterface {
   userJwt?: string
   envId?: string
   userKeyClaim?: string
+  // The deployment's API URL. Login answers are accepted from its embed origin
+  // (`<env id>.embed.<its host>`), so a deployment other than Permit SaaS must pass it.
   permitApiUrl?: string
   elementIframeUrl?: string
 }

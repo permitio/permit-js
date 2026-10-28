@@ -53,6 +53,7 @@ export const sendTokenToIframe = (token: string,elementIframeUrl:string) => {
 
         if (attempts >= MAX_ATTEMPTS) {
             clearInterval(interval);
+            window.removeEventListener("message", messageListener);
             console.error("We haven't recognized your element in a while.");
         }
     }, TIME_INTERVAL);

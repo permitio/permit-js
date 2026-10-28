@@ -1,3 +1,5 @@
+import ky from "ky"
+
 import { PermitElements, PERMIT_URL, isPermitEmbedOrigin } from "../src/elements"
 import { sendTokenToIframe } from "../src/sendToken"
 import { LoginMethod } from "../src/types"
@@ -41,6 +43,8 @@ afterEach(() => {
   delete (global as any).window
   delete (global as any).document
 })
+
+const flush = () => new Promise(jest.requireActual("timers").setImmediate)
 
 function post(msg: { origin: string; source: unknown; data: unknown }) {
   listeners.forEach((listener) => listener(msg))
@@ -177,17 +181,74 @@ test("a login that cannot add its iframe stops listening", async () => {
   expect(listeners.size).toBe(0)
 })
 
-test("a second login while one is in flight joins it", async () => {
-  jest.spyOn(console, "warn").mockImplementation(() => undefined)
+test("a second login waits for the first, then finds it connected", async () => {
+  jest.spyOn(console, "info").mockImplementation(() => undefined)
   const elements = new PermitElements()
   const { login, iframe } = startLogin(elements)
   const second = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie })
 
-  expect(second).toBe(login)
   expect(appended).toHaveLength(1)
-  expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("already in progress"))
   post({ origin: "https://embed.api.permit.io", source: iframe.contentWindow, data: { success: true, me: {} } })
+  await expect(login).resolves.toBe(true)
   await expect(second).resolves.toBe(true)
+  expect(appended).toHaveLength(1)
+  expect(console.info).toHaveBeenCalledWith(expect.stringContaining("Already connected"))
+})
+
+test("login, logout and login again run in that order", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements)
+  const logout = elements.logout()
+  const again = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie })
+
+  post({
+    origin: "https://embed.api.permit.io",
+    source: iframe.contentWindow,
+    data: { success: true, me: { actor: { env_id: ENV_ID } } },
+  })
+  await expect(login).resolves.toBe(true)
+  await flush()
+  const logoutIframe = appended[appended.length - 1]
+  expect(logoutIframe.src).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/logout`)
+  logoutIframe.onload()
+  await expect(logout).resolves.toBe(true)
+  await flush()
+
+  const secondLoginIframe = appended[appended.length - 1]
+  expect(secondLoginIframe).not.toBe(iframe)
+  post({ origin: "https://embed.api.permit.io", source: secondLoginIframe.contentWindow, data: { success: true, me: {} } })
+  await expect(again).resolves.toBe(true)
+  expect(elements.isConnected).toBe(true)
+})
+
+test("a second logout waits for the first", async () => {
+  const elements = new PermitElements()
+  elements.me = { actor: { env_id: ENV_ID } }
+  const first = elements.logout()
+  let secondDone = false
+  const second = elements.logout().then((result) => {
+    secondDone = true
+    return result
+  })
+  await flush()
+  expect(secondDone).toBe(false)
+
+  appended[0].onload()
+  await expect(first).resolves.toBe(true)
+  await expect(second).resolves.toBe(true)
+})
+
+test("a slow logout keeps its iframe until the request has loaded", async () => {
+  const elements = new PermitElements()
+  elements.me = { actor: { env_id: ENV_ID } }
+  const logout = elements.logout()
+  const iframe = appended[0]
+
+  jest.advanceTimersByTime(10000)
+  await expect(logout).resolves.toBe(true)
+  expect(appended).toEqual([iframe])
+  iframe.onload()
+  expect(appended).toHaveLength(0)
 })
 
 test("logout loads the environment's logout URL and resolves once it has loaded", async () => {
@@ -218,9 +279,10 @@ test("logout uses the API URL of the login", async () => {
   await login
 
   const logout = elements.logout()
-  await Promise.resolve()
-  expect(appended[appended.length - 1].src).toBe(`https://${ENV_ID}.embed.api.example.com/v2/auth/logout`)
-  jest.advanceTimersByTime(3000)
+  await flush()
+  const logoutIframe = appended[appended.length - 1]
+  expect(logoutIframe.src).toBe(`https://${ENV_ID}.embed.api.example.com/v2/auth/logout`)
+  logoutIframe.onload()
   await expect(logout).resolves.toBe(true)
 })
 
@@ -248,7 +310,7 @@ test("logout waits for a login in flight, then ends it", async () => {
     data: { success: true, me: { actor: { env_id: ENV_ID } } },
   })
   await expect(login).resolves.toBe(true)
-  await Promise.resolve()
+  await flush()
   const logoutIframe = appended[appended.length - 1]
   expect(logoutIframe.src).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/logout`)
   logoutIframe.onload()
@@ -269,7 +331,7 @@ test("login waits for a logout still loading", async () => {
 
   logoutIframe.onload()
   await logout
-  await new Promise(jest.requireActual("timers").setImmediate)
+  await flush()
   expect(appended).toHaveLength(1)
   expect(appended[0]).not.toBe(logoutIframe)
   jest.advanceTimersByTime(3000)
@@ -293,6 +355,19 @@ test("approve posts to the given deployment", async () => {
       inviteCode: "code", email: "a@example.com", token: "t", envId: ENV_ID, permitApiUrl: "not a url",
     }),
   ).rejects.toThrow("permitApiUrl a URL")
+})
+
+test("approve posts to the embed origin of the login's deployment", async () => {
+  const post = jest.spyOn(ky, "post").mockReturnValue({ json: () => Promise.resolve({ ok: true }) } as never)
+  const elements = new PermitElements()
+  elements.permitApiUrl = "https://api.example.com"
+
+  await expect(
+    elements.approve({ inviteCode: "code-1", email: "a@example.com", token: "t", envId: DASHED_ENV_ID }),
+  ).resolves.toEqual({ ok: true })
+  expect(post.mock.calls[0][0]).toBe(
+    `https://${ENV_ID}.embed.api.example.com/v2/auth/${ENV_ID}/user_invites/code-1/approve`,
+  )
 })
 
 test("approve refuses an envId that is not an environment id", async () => {
@@ -319,4 +394,15 @@ test("sendTokenToIframe stops only on the element iframe's confirmation", () => 
   post({ origin: "https://elements.example.com", source: iframe.contentWindow, data: { type: "permitTokenReceived" } })
   jest.advanceTimersByTime(4000)
   expect(iframe.contentWindow.postMessage).toHaveBeenCalledTimes(2)
+})
+
+test("sendTokenToIframe stops listening once it gives up", () => {
+  jest.spyOn(console, "error").mockImplementation(() => undefined)
+  const iframe = makeElement()
+  ;(global as any).document.querySelector = () => iframe
+
+  sendTokenToIframe("token", "https://elements.example.com/")
+  jest.advanceTimersByTime(400 * 21)
+
+  expect(listeners.size).toBe(0)
 })

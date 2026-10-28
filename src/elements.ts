@@ -5,8 +5,11 @@ import {sendTokenToIframe} from "./sendToken";
 // The embed origins Permit SaaS serves Elements from.
 export const PERMIT_URL = /^https:\/\/([a-z0-9]{32}\.)?embed(\.api)?(\.stg)?\.permit\.io$/;
 const PERMIT_API_URL = "https://api.permit.io";
-// How long the login and logout iframes live; no answer can arrive once one is removed.
+// How long the login iframe lives; no answer can arrive once it is removed.
 const IFRAME_LIFETIME_MS = 3000;
+// How long logout() waits for its request before resolving. Its iframe stays until it has
+// loaded, so a slow request still completes.
+const LOGOUT_WAIT_MS = 10000;
 const ENV_ID = /^[0-9a-f]{32}$/;
 
 /** An environment id as the embed host spells it (32 hex digits), or undefined. */
@@ -66,8 +69,8 @@ export class PermitElements {
   isDev = false;
   // The API URL of the last successful login, so logout() and approve() reach its deployment.
   permitApiUrl = PERMIT_API_URL;
-  private loginInFlight?: Promise<boolean>;
-  private logoutInFlight?: Promise<boolean>;
+  // The login or logout still running, if any: each call waits for the one before it.
+  private pending?: Promise<void>;
   constructor() {
     this.config = { credentials: 'include' }
     this.isConnected = false;
@@ -146,27 +149,23 @@ export class PermitElements {
       });
   }
 
-  login = (args: LoginInterface): Promise<boolean> => {
-    // A call while a login is in flight joins it instead of starting another.
-    if (this.loginInFlight !== undefined) {
-      console.warn('A Permit Elements login is already in progress; this call waits for it');
-    } else {
-      const done = () => {
-        this.loginInFlight = undefined;
-      };
-      this.loginInFlight = this.startLogin(args).then(
-        (connected) => {
-          done();
-          return connected;
-        },
-        (error) => {
-          done();
-          throw error;
-        },
-      );
-    }
-    return this.loginInFlight;
+  /**
+   * Runs logins and logouts one at a time, in call order, so a logout can't race the login
+   * before it, or a login the logout before it. When nothing is running, `operation` starts
+   * at once, in the caller's task.
+   */
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.pending;
+    const run = previous === undefined ? operation() : previous.then(operation);
+    const settled = run.then(() => undefined, () => undefined);
+    this.pending = settled;
+    settled.then(() => {
+      if (this.pending === settled) this.pending = undefined;
+    });
+    return run;
   }
+
+  login = (args: LoginInterface): Promise<boolean> => this.serialize(() => this.startLogin(args));
 
   private startLogin = async ({
     loginUrl,
@@ -180,11 +179,6 @@ export class PermitElements {
     userKeyClaim,
     permitApiUrl = PERMIT_API_URL,
   }: LoginInterface): Promise<boolean> => {
-    // A logout still loading would end the session this login opens. (Only await
-    // one: otherwise the iframe is created in the same task, as before.)
-    if (this.logoutInFlight !== undefined) {
-      await this.logoutInFlight;
-    }
     if (this.isConnected) {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
       return Promise.resolve(true);
@@ -288,7 +282,10 @@ export class PermitElements {
         iframe.remove();
         stopListening();
         if (!answered) {
-          console.warn('The Permit Elements login did not answer; not connected');
+          console.warn(
+            'The Permit Elements login did not answer; not connected. A deployment other '
+            + 'than Permit SaaS must pass its API URL as permitApiUrl.',
+          );
         }
         resolve(false);
       }, IFRAME_LIFETIME_MS);
@@ -301,7 +298,7 @@ export class PermitElements {
     if (embedOrigin === undefined) {
       throw new Error('approve: envId must be a Permit environment id, and permitApiUrl a URL');
     }
-    const approveUrl = `${embedOrigin}/v2/auth/${envIdHex(envId)}/user_invites/${encodeURIComponent(inviteCode)}/approve`;
+    const approveUrl = `${embedOrigin}/v2/auth/${envIdHex(envId)}/user_invites/${inviteCode}/approve`;
     const params = {
       email: email,
       user_key_claim: user_key_claim,
@@ -323,11 +320,10 @@ export class PermitElements {
   }
 
 
-  logout = async (logoutCustomUrl?: string) => {
-    // A login still in flight would connect after this logout and undo it.
-    if (this.loginInFlight !== undefined) {
-      await this.loginInFlight.catch(() => false);
-    }
+  logout = (logoutCustomUrl?: string): Promise<boolean> =>
+    this.serialize(() => this.endSession(logoutCustomUrl));
+
+  private endSession = async (logoutCustomUrl?: string): Promise<boolean> => {
     this.isConnected = false;
     let logoutUrl = logoutCustomUrl;
     if (!logoutUrl) {
@@ -349,19 +345,17 @@ export class PermitElements {
     iframe.src = logoutUrl;
     iframe.style.top = '-10px';
     iframe.style.left = '-10px';
-    // Resolve once the logout request has completed; login() waits for it, so that
-    // a login right after it is not logged out by it.
-    this.logoutInFlight = new Promise<boolean>((resolve) => {
-      const done = () => {
+    // Resolve once the logout request has loaded, or after LOGOUT_WAIT_MS. The iframe is
+    // removed only once it has loaded: removing it earlier would cancel the request.
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(true), LOGOUT_WAIT_MS);
+      iframe.onload = () => {
+        clearTimeout(timer);
         iframe.remove();
-        this.logoutInFlight = undefined;
         resolve(true);
       };
-      iframe.onload = done;
-      setTimeout(done, IFRAME_LIFETIME_MS);
       document.body.appendChild(iframe);
     });
-    return this.logoutInFlight;
   }
 
   help = () => {
