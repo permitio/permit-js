@@ -5,6 +5,7 @@ import {sendTokenToIframe} from "./sendToken";
 // The embed origins Permit SaaS serves Elements from.
 export const PERMIT_URL = /^https:\/\/([a-z0-9]{32}\.)?embed(\.api)?(\.stg)?\.permit\.io$/;
 const PERMIT_API_URL = "https://api.permit.io";
+const PERMIT_STG_API_URL = "https://api.stg.permit.io";
 // How long the login iframe lives; no answer can arrive once it is removed.
 const IFRAME_LIFETIME_MS = 3000;
 // How long logout() waits for its request before resolving. Its iframe stays until it has
@@ -40,6 +41,23 @@ function trustedOrigin(entry: string): string {
     throw new Error(`login: trustedOrigins entry ${entry} must be an http(s) URL`);
   }
   return url.origin;
+}
+
+/**
+ * Whether `permitApiUrl` is a path on the page's own origin (e.g. `/permit-api`), which a
+ * frontendOnly login's request resolves against the page. It names no deployment, so login
+ * answers are then taken from Permit SaaS origins only.
+ */
+function isPagePath(permitApiUrl: string): boolean {
+  if (!permitApiUrl.startsWith('/')) {
+    return false;
+  }
+  const base = 'https://page.invalid';
+  try {
+    return new URL(permitApiUrl, base).origin === base;
+  } catch {
+    return false;
+  }
 }
 
 /** A deployment reached on localhost or by IP address serves Elements from its API origin. */
@@ -249,8 +267,8 @@ export class PermitElements {
     permitApiUrl = PERMIT_API_URL,
     trustedOrigins = [],
   }: LoginInterface): Promise<boolean> => {
-    if (apiUrl(permitApiUrl) === undefined) {
-      throw new Error('login: permitApiUrl must be an http(s) URL');
+    if (apiUrl(permitApiUrl) === undefined && !isPagePath(permitApiUrl)) {
+      throw new Error("login: permitApiUrl must be an http(s) URL or a path on this page's origin");
     }
     const trusted = trustedOrigins.map(trustedOrigin);
     if (this.isConnected) {
@@ -335,8 +353,11 @@ export class PermitElements {
           this.isConnected = true;
           this.me = msg.data.me;
           // Later calls for other environments go to the deployment that answered: the one
-          // permitApiUrl names, or else Permit SaaS (e.g. a login through a proxy permitApiUrl).
-          this.permitApiUrl = isDeploymentEmbedOrigin(msg.origin, permitApiUrl) ? permitApiUrl : PERMIT_API_URL;
+          // permitApiUrl names, or else Permit SaaS, staging or production by the answer's
+          // origin (e.g. a login through a proxy permitApiUrl).
+          this.permitApiUrl = isDeploymentEmbedOrigin(msg.origin, permitApiUrl)
+            ? permitApiUrl
+            : /\.stg\.permit\.io$/.test(msg.origin) ? PERMIT_STG_API_URL : PERMIT_API_URL;
           this.sessionOrigin = msg.origin;
           resolve(true);
         } else if (

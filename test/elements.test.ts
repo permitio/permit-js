@@ -206,13 +206,19 @@ test("a connected login still refuses an invalid trustedOrigins entry", async ()
   ).rejects.toThrow("trustedOrigins entry null")
 })
 
-test.each([false, true])("login refuses a permitApiUrl that is not an http(s) URL (connected: %p)", async (connected) => {
+test.each([
+  ["api.example.com", false],
+  ["api.example.com", true],
+  ["//api.example.com", false],
+  ["/\\api.example.com", false],
+  ["ftp://api.example.com", false],
+])("login refuses the permitApiUrl %p (connected: %p)", async (permitApiUrl, connected) => {
   const elements = new PermitElements()
   elements.isConnected = connected
 
   await expect(
-    elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie, permitApiUrl: "api.example.com" }),
-  ).rejects.toThrow("login: permitApiUrl must be an http(s) URL")
+    elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie, permitApiUrl }),
+  ).rejects.toThrow("login: permitApiUrl must be an http(s) URL or a path on this page's origin")
   expect(appended).toHaveLength(0)
   expect(listeners.size).toBe(0)
 })
@@ -791,6 +797,48 @@ test("after a login answered by the staging deployment it named, approve for ano
     `https://${OTHER_ENV_ID}.embed.api.stg.permit.io/v2/auth/${OTHER_ENV_ID}/user_invites/code/approve`,
   )
 })
+
+test("a frontendOnly login takes a permitApiUrl that is a path on the page's origin", async () => {
+  const kyPost = jest.spyOn(ky, "post").mockImplementation(() => ({
+    json: () => Promise.resolve({ redirect_url: "https://app.example.com/frame" }),
+  }) as never)
+  const elements = new PermitElements()
+  const login = elements.login({
+    loginMethod: LoginMethod.frontendOnly, tenant: "t", userJwt: "jwt", envId: ENV_ID, permitApiUrl: "/permit-api",
+  })
+  await flush()
+  expect(kyPost.mock.calls[0][0]).toBe(`/permit-api/v2/auth/${ENV_ID}/elements_fe_login_as`)
+  const iframe = appended[0]
+  expect(iframe.src).toBe("https://app.example.com/frame")
+
+  post({ origin: `https://${ENV_ID}.embed.api.permit.io`, source: iframe.contentWindow, data: { success: true, me: { actor: { env_id: ENV_ID } } } })
+  await expect(login).resolves.toBe(true)
+  await elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId: OTHER_ENV_ID })
+  expect(kyPost.mock.calls[1][0]).toBe(
+    `https://${OTHER_ENV_ID}.embed.api.permit.io/v2/auth/${OTHER_ENV_ID}/user_invites/code/approve`,
+  )
+})
+
+test.each([
+  `https://${ENV_ID}.embed.api.stg.permit.io`,
+  "https://embed.api.stg.permit.io",
+  "https://embed.stg.permit.io",
+  `https://${ENV_ID}.embed.stg.permit.io`,
+])(
+  "after a login answered by Permit staging from %s, approve for another environment posts to staging",
+  async (origin) => {
+    const kyPost = jest.spyOn(ky, "post").mockReturnValue({ json: () => Promise.resolve({ ok: true }) } as never)
+    const elements = new PermitElements()
+    const { login, iframe } = startLogin(elements, "https://proxy.example.com")
+    post({ origin, source: iframe.contentWindow, data: { success: true, me: { actor: { env_id: ENV_ID } } } })
+    await login
+
+    await elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId: OTHER_ENV_ID })
+    expect(kyPost.mock.calls[0][0]).toBe(
+      `https://${OTHER_ENV_ID}.embed.api.stg.permit.io/v2/auth/${OTHER_ENV_ID}/user_invites/code/approve`,
+    )
+  },
+)
 
 test("approve after a login posts another environment's invite to the login's deployment", async () => {
   const kyPost = jest.spyOn(ky, "post").mockReturnValue({ json: () => Promise.resolve({ ok: true }) } as never)

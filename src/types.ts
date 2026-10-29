@@ -19,7 +19,9 @@ export interface LoginInterface {
   /**
    * The deployment's API URL (http or https). Login answers are accepted from its embed
    * origin (`<env id>.embed.<its host>`, or the API URL's own origin on localhost or an IP
-   * address), so a deployment other than Permit SaaS must pass it.
+   * address), so a deployment other than Permit SaaS must pass it. A path on the page's
+   * origin (e.g. `/permit-api`, a same-origin proxy for a frontendOnly login) is accepted
+   * too; answers are then taken from Permit SaaS origins only.
    */
   permitApiUrl?: string
   /**
