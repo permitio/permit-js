@@ -53,15 +53,20 @@ export interface FoAzInterface {
 
 export interface Elements {
   /**
-   * Resolves true once connected (or already connected). Rejects on an error answer, or
-   * when the login gets no answer within 3 seconds, e.g. because a deployment other than
-   * Permit SaaS did not pass permitApiUrl.
+   * Runs after any login() or logout() still running. Resolves true once connected or
+   * already connected; a supportsPrivateBrowser login resolves true once its login request
+   * returns, and then hands the token to the element iframe (isConnected stays false).
+   * Rejects with the error page's message (a string) on an error answer, and with an Error
+   * when an option is invalid or missing, the login request fails or takes over 10 seconds,
+   * or the login iframe gets no answer within 3 seconds of being added (e.g. a deployment
+   * other than Permit SaaS did not pass permitApiUrl).
    */
   login: ({}: LoginInterface) => Promise<boolean>
   approve: ({inviteCode, email, token, envId, attributes}: ApproveInterface) => Promise<any>
   /**
-   * Resolves true once the logout URL (logoutUrl, or that of the session this page logged
-   * in) has loaded or after 10 seconds, or false when no session is known here to end.
+   * Runs after any login() or logout() still running. Resolves true once the logout URL
+   * (logoutUrl, or that of the session this page logged in) has loaded or after 10 seconds,
+   * or false when no session is known here to end. Rejects if its iframe can't be added.
    */
   logout: (logoutUrl?: string) => Promise<boolean>
 }
