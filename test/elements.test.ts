@@ -197,6 +197,26 @@ test.each(["null", "embed.example.com", "javascript:alert(1)", "file:///tmp/x"])
   },
 )
 
+test("a connected login still refuses an invalid trustedOrigins entry", async () => {
+  const elements = new PermitElements()
+  elements.isConnected = true
+
+  await expect(
+    elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie, trustedOrigins: ["null"] }),
+  ).rejects.toThrow("trustedOrigins entry null")
+})
+
+test.each([false, true])("login refuses a permitApiUrl that is not an http(s) URL (connected: %p)", async (connected) => {
+  const elements = new PermitElements()
+  elements.isConnected = connected
+
+  await expect(
+    elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie, permitApiUrl: "api.example.com" }),
+  ).rejects.toThrow("login: permitApiUrl must be an http(s) URL")
+  expect(appended).toHaveLength(0)
+  expect(listeners.size).toBe(0)
+})
+
 test("login puts the tenant in its URL as one query value", async () => {
   const elements = new PermitElements()
   elements.login({ loginUrl: "https://app.example.com/login?a=1", loginMethod: LoginMethod.cookie, tenant: "t&x=1" })
@@ -416,11 +436,34 @@ test("a login whose request stalls gives up, and the logout behind it runs", asy
   expect(appended).toHaveLength(0)
 
   jest.advanceTimersByTime(10000)
-  await expect(login).rejects.toThrow("Error while trying to login")
+  await expect(login).rejects.toThrow("login request took longer than 10 seconds")
   await flush()
   expect(appended.map((iframe) => iframe.src)).toEqual(["https://app.example.com/logout"])
   appended[0].onload()
   await expect(logout).resolves.toBe(true)
+})
+
+test("a login request ky refuses at once rejects with the login error and leaves no timer", async () => {
+  jest.spyOn(console, "error").mockImplementation(() => undefined)
+  jest.spyOn(ky, "post").mockImplementation(() => {
+    throw new TypeError("invalid header value")
+  })
+  const elements = new PermitElements()
+
+  await expect(
+    elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.bearer, token: "t" }),
+  ).rejects.toThrow("Error while trying to login")
+  expect(jest.getTimerCount()).toBe(0)
+})
+
+test("a login or logout that throws before it returns a promise does not hold up later calls", async () => {
+  const elements = new PermitElements()
+  ;(elements as any).startLogin = () => {
+    throw new TypeError("bad arguments")
+  }
+
+  await expect(elements.login({ loginMethod: LoginMethod.cookie })).rejects.toThrow("bad arguments")
+  await expect(elements.logout()).resolves.toBe(false)
 })
 
 test("a second logout waits for the first", async () => {
@@ -713,6 +756,23 @@ test("approve after a login posts to the origin that answered it", async () => {
 
   await elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId: ENV_ID })
   expect(kyPost.mock.calls[0][0]).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/${ENV_ID}/user_invites/code/approve`)
+})
+
+test("after a login answered by the staging deployment it named, approve for another environment stays there", async () => {
+  const kyPost = jest.spyOn(ky, "post").mockReturnValue({ json: () => Promise.resolve({ ok: true }) } as never)
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements, "https://api.stg.permit.io")
+  post({
+    origin: `https://${ENV_ID}.embed.api.stg.permit.io`,
+    source: iframe.contentWindow,
+    data: { success: true, me: { actor: { env_id: ENV_ID } } },
+  })
+  await login
+
+  await elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId: OTHER_ENV_ID })
+  expect(kyPost.mock.calls[0][0]).toBe(
+    `https://${OTHER_ENV_ID}.embed.api.stg.permit.io/v2/auth/${OTHER_ENV_ID}/user_invites/code/approve`,
+  )
 })
 
 test("approve after a login posts another environment's invite to the login's deployment", async () => {

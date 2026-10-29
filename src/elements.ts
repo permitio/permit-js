@@ -70,9 +70,12 @@ export function isPermitEmbedOrigin(
   permitApiUrl: string = PERMIT_API_URL,
   trustedOrigins: readonly string[] = [],
 ): boolean {
-  if (PERMIT_URL.test(origin) || trustedOrigins.includes(origin)) {
-    return true;
-  }
+  return PERMIT_URL.test(origin) || trustedOrigins.includes(origin)
+    || isDeploymentEmbedOrigin(origin, permitApiUrl);
+}
+
+/** Whether `origin` is the embed origin of an environment on the deployment `permitApiUrl` names. */
+function isDeploymentEmbedOrigin(origin: string, permitApiUrl: string): boolean {
   const api = apiUrl(permitApiUrl);
   if (api === undefined) {
     return false;
@@ -179,8 +182,9 @@ export class PermitElements {
     // ky's own timeout ends once the headers arrive; this abort also stops the body read.
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), LOGIN_REQUEST_MS);
-    return ky.post(loginUrl, { json: postData, ...this.config, signal: abort.signal })
-      .json()
+    // Started inside the chain, so a request ky refuses at once takes the same catch.
+    return Promise.resolve()
+      .then(() => ky.post(loginUrl, { json: postData, ...this.config, signal: abort.signal }).json())
       .then((data: any) => {
         clearTimeout(timer);
         if (loginMethod === LoginMethod.frontendOnly) {
@@ -193,6 +197,9 @@ export class PermitElements {
         clearTimeout(timer);
         this.isConnected = false;
         console.error(error);
+        if (abort.signal.aborted) {
+          throw new Error(`The Permit Elements login request took longer than ${LOGIN_REQUEST_MS / 1000} seconds`);
+        }
         throw new Error('Error while trying to login, make sure that you\'ve created a login as route in your application and passed the right credentials');
       });
   }
@@ -211,7 +218,13 @@ export class PermitElements {
       if (this.pending === settled) this.pending = undefined;
       release();
     };
-    const run = previous === undefined ? operation() : previous.then(operation);
+    let run: Promise<T>;
+    try {
+      run = previous === undefined ? operation() : previous.then(operation);
+    } catch (error) {
+      // e.g. login() called without arguments: its parameters are read before the async body.
+      run = Promise.reject(error);
+    }
     // The caller gets a promise of its own, so a rejection it ignores is still reported.
     return run.then(
       (value) => { done(); return value; },
@@ -234,6 +247,9 @@ export class PermitElements {
     permitApiUrl = PERMIT_API_URL,
     trustedOrigins = [],
   }: LoginInterface): Promise<boolean> => {
+    if (apiUrl(permitApiUrl) === undefined) {
+      throw new Error('login: permitApiUrl must be an http(s) URL');
+    }
     const trusted = trustedOrigins.map(trustedOrigin);
     if (this.isConnected) {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
@@ -316,9 +332,9 @@ export class PermitElements {
           stopListening();
           this.isConnected = true;
           this.me = msg.data.me;
-          // An answer from Permit SaaS (e.g. through a proxy permitApiUrl) leaves later calls
-          // for other environments on Permit SaaS.
-          this.permitApiUrl = PERMIT_URL.test(msg.origin) ? PERMIT_API_URL : permitApiUrl;
+          // Later calls for other environments go to the deployment that answered: the one
+          // permitApiUrl names, or else Permit SaaS (e.g. a login through a proxy permitApiUrl).
+          this.permitApiUrl = isDeploymentEmbedOrigin(msg.origin, permitApiUrl) ? permitApiUrl : PERMIT_API_URL;
           this.sessionOrigin = msg.origin;
           resolve(true);
         } else if (
