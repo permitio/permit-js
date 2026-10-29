@@ -125,6 +125,7 @@ test.each([
   [`https://${ENV_ID}.embed.other.example.com`, "https://api.example.com", false],
   ["https://embed.api.example.com", "https://api.example.com", false],
   [`https://${ENV_ID}.embed.api.example.com:8443`, "https://api.example.com", false],
+  [`https://${ENV_ID.slice(1)}.embed.api.example.com`, "https://api.example.com", false],
   [`http://${ENV_ID}.embed.api.example.com`, "https://api.example.com", false],
 ])("a deployment's own embed origin %s, for API %s: %s", (origin, permitApiUrl, accepted) => {
   expect(isPermitEmbedOrigin(origin, permitApiUrl)).toBe(accepted)
@@ -240,6 +241,17 @@ test("login ignores answers from another origin or another window, then times ou
   expect(elements.isConnected).toBe(false)
   expect(listeners.size).toBe(0)
   expect(appended).toHaveLength(0)
+})
+
+test("login ignores an error answer from another origin", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements)
+
+  post({ origin: "https://example.com", source: iframe.contentWindow, data: { success: false, error: "denied" } })
+  expect(listeners.size).toBe(1)
+
+  jest.advanceTimersByTime(3000)
+  await expect(login).rejects.toThrow(NO_ANSWER)
 })
 
 test.each([
@@ -537,6 +549,35 @@ test("logout ends a session whose login answer had no environment id", async () 
   await expect(logout).resolves.toBe(true)
 })
 
+test("a logout after a login's logout has nothing to end", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements)
+  post({ origin: `https://${ENV_ID}.embed.api.permit.io`, source: iframe.contentWindow, data: { success: true, me: {} } })
+  await expect(login).resolves.toBe(true)
+  const first = elements.logout()
+  await flush()
+  appended[appended.length - 1].onload()
+  await expect(first).resolves.toBe(true)
+
+  const count = appended.length
+  const second = elements.logout()
+  await flush()
+  expect(appended).toHaveLength(count)
+  await expect(second).resolves.toBe(false)
+})
+
+test("a logout that cannot add its iframe rejects, and the next call still runs", async () => {
+  ;(global as any).document.body.appendChild = () => {
+    throw new TypeError("no body")
+  }
+  const elements = new PermitElements()
+  elements.me = { actor: { env_id: ENV_ID } }
+
+  await expect(elements.logout()).rejects.toThrow("no body")
+  expect(jest.getTimerCount()).toBe(0)
+  await expect(elements.logout()).resolves.toBe(false)
+})
+
 test("logout loads the logout URL it is given", async () => {
   const elements = new PermitElements()
   elements.isConnected = true
@@ -584,7 +625,7 @@ test("login waits for a logout still loading", async () => {
   const logoutIframe = appended[0]
 
   const login = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie })
-  await Promise.resolve()
+  await flush()
   expect(appended).toEqual([logoutIframe])
 
   logoutIframe.onload()
@@ -640,7 +681,7 @@ test("approve puts the invite code in its URL as one path segment", async () => 
   )
 })
 
-test.each(["", ".", ".."])("approve refuses the invite code %p", async (inviteCode) => {
+test.each(["", ".", "..", undefined as unknown as string, 1 as unknown as string])("approve refuses the invite code %p", async (inviteCode) => {
   const post = refuseRequests()
   const elements = new PermitElements()
 
@@ -648,6 +689,15 @@ test.each(["", ".", ".."])("approve refuses the invite code %p", async (inviteCo
     elements.approve({ inviteCode, email: "a@example.com", token: "t", envId: ENV_ID }),
   ).rejects.toThrow("inviteCode must be an invite code")
   expect(post).not.toHaveBeenCalled()
+})
+
+test("approve without a login answer posts to the environment's embed origin", async () => {
+  const kyPost = jest.spyOn(ky, "post").mockReturnValue({ json: () => Promise.resolve({ ok: true }) } as never)
+  const elements = new PermitElements()
+  elements.me = { actor: { env_id: ENV_ID } }
+
+  await elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId: ENV_ID })
+  expect(kyPost.mock.calls[0][0]).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/${ENV_ID}/user_invites/code/approve`)
 })
 
 test("approve after a login posts to the origin that answered it", async () => {
@@ -729,7 +779,7 @@ test("after a login answer without an environment id, approve still refuses an i
   expect(kyPost).not.toHaveBeenCalled()
 })
 
-const NOT_ENV_IDS = [`${ENV_ID}.example.com`, `x${ENV_ID}`, `${ENV_ID}0`, `${ENV_ID}/x`]
+const NOT_ENV_IDS = [`${ENV_ID}.example.com`, `x${ENV_ID}`, `${ENV_ID}0`, `${ENV_ID}/x`, ENV_ID.slice(1)]
 
 test.each(NOT_ENV_IDS)("approve refuses the envId %p", async (envId) => {
   const kyPost = refuseRequests()
