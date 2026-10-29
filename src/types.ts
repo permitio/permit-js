@@ -59,9 +59,10 @@ export interface Elements {
    * already connected; a supportsPrivateBrowser login resolves true once its login request
    * returns, and then hands the token to the element iframe (isConnected stays false).
    * Rejects with the error page's message (a string) on an error answer, and with an Error
-   * when an option is invalid or missing, the login request fails or takes over 10 seconds,
-   * or the login iframe gets no answer within 3 seconds of being added (e.g. a deployment
-   * other than Permit SaaS did not pass permitApiUrl).
+   * when an option the login method needs is missing, permitApiUrl or a trustedOrigins
+   * entry is not an http(s) URL, the login request fails or takes over 10 seconds, the
+   * login iframe can't be added, or it gets no answer within 3 seconds of being added (e.g.
+   * a deployment other than Permit SaaS did not pass permitApiUrl).
    */
   login: ({}: LoginInterface) => Promise<boolean>
   approve: ({inviteCode, email, token, envId, attributes}: ApproveInterface) => Promise<any>

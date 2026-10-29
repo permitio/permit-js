@@ -284,6 +284,8 @@ test.each([
   ["no%20such%20user", "no such user"],
   ["50%off", "50%off"],
   [undefined, "Permit Elements login failed"],
+  [42, "Permit Elements login failed"],
+  [{ message: "denied" }, "Permit Elements login failed"],
 ])("login rejects with the login iframe's error (%p)", async (error, expected) => {
   const elements = new PermitElements()
   const { login, iframe } = startLogin(elements)
@@ -464,6 +466,27 @@ test("a bearer login sends its own token even when approve() is called in the sa
   expect(loginCall[1].headers).toEqual({ Authorization: "Bearer login-token" })
   jest.advanceTimersByTime(3000)
   await expect(login).rejects.toThrow(NO_ANSWER)
+})
+
+test("a supportsPrivateBrowser login resolves once its request returns, stays disconnected, then sends the token", async () => {
+  jest.spyOn(ky, "post").mockReturnValue({ json: () => Promise.resolve({ url: "token-1" }) } as never)
+  const element = makeElement()
+  attach(element)
+  ;(global as any).document.querySelector = () => element
+  const elements = new PermitElements()
+
+  await expect(elements.login({
+    loginUrl: "https://app.example.com/login",
+    loginMethod: LoginMethod.supportsPrivateBrowser,
+    elementIframeUrl: "https://elements.example.com/",
+  })).resolves.toBe(true)
+  expect(elements.isConnected).toBe(false)
+  expect(element.contentWindow.postMessage).not.toHaveBeenCalled()
+
+  jest.advanceTimersByTime(400)
+  expect(element.contentWindow.postMessage).toHaveBeenCalledWith(
+    { type: "permitToken", permitToken: "token-1" }, "https://elements.example.com/",
+  )
 })
 
 test("a login request ky refuses at once rejects with the login error and leaves no timer", async () => {
