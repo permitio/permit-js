@@ -33,6 +33,15 @@ function apiUrl(permitApiUrl: string): URL | undefined {
   }
 }
 
+/** A `trustedOrigins` entry as `event.origin` spells it; throws unless it is an http(s) URL. */
+function trustedOrigin(entry: string): string {
+  const url = apiUrl(entry);
+  if (url === undefined) {
+    throw new Error(`login: trustedOrigins entry ${entry} must be an http(s) URL`);
+  }
+  return url.origin;
+}
+
 /** A deployment reached on localhost or by IP address serves Elements from its API origin. */
 function servesEmbedFromApiOrigin(api: URL): boolean {
   return api.hostname === 'localhost' || IP_HOST.test(api.hostname);
@@ -225,6 +234,7 @@ export class PermitElements {
     permitApiUrl = PERMIT_API_URL,
     trustedOrigins = [],
   }: LoginInterface): Promise<boolean> => {
+    const trusted = trustedOrigins.map(trustedOrigin);
     if (this.isConnected) {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
       return Promise.resolve(true);
@@ -313,7 +323,7 @@ export class PermitElements {
           resolve(true);
         } else if (
           msg.data?.success === false
-          && isPermitEmbedOrigin(msg.origin, permitApiUrl, trustedOrigins)
+          && isPermitEmbedOrigin(msg.origin, permitApiUrl, trusted)
         ) {
           stopListening();
           this.isConnected = false;

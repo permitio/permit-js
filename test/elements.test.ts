@@ -116,6 +116,9 @@ test.each([
   [`https://${ENV_ID}.embed.api.example.com`, "https://api.example.com", true],
   ["http://localhost:8000", "http://localhost:8000", true],
   ["http://127.0.0.1:8000", "http://127.0.0.1:8000", true],
+  ["http://[::1]:8000", "http://[::1]:8000", true],
+  [`https://${ENV_ID}.embed.10.0.0.1.example.com`, "https://10.0.0.1.example.com", true],
+  ["https://10.0.0.1.example.com", "https://10.0.0.1.example.com", false],
   [`http://${ENV_ID}.embed.localhost:8000`, "http://localhost:8000", false],
   ["http://localhost:8001", "http://localhost:8000", false],
   ["javascript://x", "javascript:alert(1)", false],
@@ -165,6 +168,33 @@ test("login takes no success answer from a trusted origin", async () => {
   post({ origin: `https://${ENV_ID}.embed.api.example.com`, source: iframe.contentWindow, data: { success: true, me } })
   await expect(login).resolves.toBe(true)
 })
+
+test("login compares trustedOrigins entries as origins", async () => {
+  const elements = new PermitElements()
+  const login = elements.login({
+    loginUrl: "https://app.example.com/login",
+    loginMethod: LoginMethod.cookie,
+    trustedOrigins: ["https://Embed.Example.com:443/error/"],
+  })
+  const iframe = appended[0]
+
+  post({ origin: "https://embed.example.com", source: iframe.contentWindow, data: { success: false, error: "denied" } })
+
+  await expect(login).rejects.toBe("denied")
+})
+
+test.each(["null", "embed.example.com", "javascript:alert(1)", "file:///tmp/x"])(
+  "login refuses the trustedOrigins entry %p",
+  async (entry) => {
+    const elements = new PermitElements()
+
+    await expect(
+      elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie, trustedOrigins: [entry] }),
+    ).rejects.toThrow(`trustedOrigins entry ${entry}`)
+    expect(appended).toHaveLength(0)
+    expect(listeners.size).toBe(0)
+  },
+)
 
 test("login puts the tenant in its URL as one query value", async () => {
   const elements = new PermitElements()
@@ -696,6 +726,38 @@ test("after a login answer without an environment id, approve still refuses an i
   await expect(
     elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId: "example.com/x?" }),
   ).rejects.toThrow("envId must be a Permit environment id")
+  expect(kyPost).not.toHaveBeenCalled()
+})
+
+const NOT_ENV_IDS = [`${ENV_ID}.example.com`, `x${ENV_ID}`, `${ENV_ID}0`, `${ENV_ID}/x`]
+
+test.each(NOT_ENV_IDS)("approve refuses the envId %p", async (envId) => {
+  const kyPost = refuseRequests()
+  const elements = new PermitElements()
+
+  await expect(
+    elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId }),
+  ).rejects.toThrow("envId must be a Permit environment id")
+  expect(kyPost).not.toHaveBeenCalled()
+})
+
+test.each(NOT_ENV_IDS)("logout loads nothing for the environment id %p", async (envId) => {
+  const elements = new PermitElements()
+  elements.me = { actor: { env_id: envId } }
+
+  await expect(elements.logout()).resolves.toBe(false)
+  expect(appended).toHaveLength(0)
+})
+
+test("approve refuses a permitApiUrl that is not http or https", async () => {
+  const kyPost = refuseRequests()
+  const elements = new PermitElements()
+
+  await expect(
+    elements.approve({
+      inviteCode: "code", email: "a@example.com", token: "t", envId: ENV_ID, permitApiUrl: "ftp://api.example.com",
+    }),
+  ).rejects.toThrow("permitApiUrl must be an http(s) URL")
   expect(kyPost).not.toHaveBeenCalled()
 })
 
