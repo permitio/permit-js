@@ -44,6 +44,9 @@ export interface FoAzInterface {
 }
 
 export interface Elements {
+  // Resolves true once connected (or already connected). Rejects on an error answer, or
+  // when the login gets no answer within 3 seconds, e.g. because a deployment other than
+  // Permit SaaS did not pass permitApiUrl.
   login: ({}: LoginInterface) => Promise<boolean>
   approve: ({inviteCode, email, token, envId, attributes}: ApproveInterface) => Promise<any>
   // Resolves true once the logout URL (logoutUrl, or that of the session this page logged

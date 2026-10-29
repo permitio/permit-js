@@ -10,6 +10,8 @@ const IFRAME_LIFETIME_MS = 3000;
 // How long logout() waits for its request before resolving. Its iframe stays until it has
 // loaded, so a slow request still completes.
 const LOGOUT_WAIT_MS = 10000;
+// How long a login request may take, its response body included.
+const LOGIN_REQUEST_MS = 10000;
 const ENV_ID = /^[0-9a-f]{32}$/;
 
 /** An environment id as the embed host spells it (32 hex digits), or undefined. */
@@ -165,9 +167,13 @@ export class PermitElements {
       }
     }
 
-    return ky.post(loginUrl, { json: postData, ...this.config })
+    // ky's own timeout ends once the headers arrive; this abort also stops the body read.
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), LOGIN_REQUEST_MS);
+    return ky.post(loginUrl, { json: postData, ...this.config, signal: abort.signal })
       .json()
       .then((data: any) => {
+        clearTimeout(timer);
         if (loginMethod === LoginMethod.frontendOnly) {
           return data.redirect_url;
         } else {
@@ -175,6 +181,7 @@ export class PermitElements {
         }
       })
       .catch((error) => {
+        clearTimeout(timer);
         this.isConnected = false;
         console.error(error);
         throw new Error('Error while trying to login, make sure that you\'ve created a login as route in your application and passed the right credentials');
@@ -188,13 +195,19 @@ export class PermitElements {
    */
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.pending;
-    const run = previous === undefined ? operation() : previous.then(operation);
-    const settled = run.then(() => undefined, () => undefined);
+    let release!: () => void;
+    const settled = new Promise<void>((resolve) => { release = resolve; });
     this.pending = settled;
-    settled.then(() => {
+    const done = () => {
       if (this.pending === settled) this.pending = undefined;
-    });
-    return run;
+      release();
+    };
+    const run = previous === undefined ? operation() : previous.then(operation);
+    // The caller gets a promise of its own, so a rejection it ignores is still reported.
+    return run.then(
+      (value) => { done(); return value; },
+      (error) => { done(); throw error; },
+    );
   }
 
   login = (args: LoginInterface): Promise<boolean> => this.serialize(() => this.startLogin(args));
@@ -278,7 +291,6 @@ export class PermitElements {
     iframe.style.left = '-10px';
     iframe.src = iframeUrl;
     return new Promise<boolean>((resolve, reject) => {
-      let answered = false;
       // The login iframe's window, kept from when it was added: removing the iframe nulls
       // its contentWindow, which must not then match a message without a source.
       let frameWindow: Window | null = null;
@@ -291,7 +303,6 @@ export class PermitElements {
           return;
         }
         if (msg.data?.success === true && isPermitEmbedOrigin(msg.origin, permitApiUrl)) {
-          answered = true;
           stopListening();
           this.isConnected = true;
           this.me = msg.data.me;
@@ -304,7 +315,6 @@ export class PermitElements {
           msg.data?.success === false
           && isPermitEmbedOrigin(msg.origin, permitApiUrl, trustedOrigins)
         ) {
-          answered = true;
           stopListening();
           this.isConnected = false;
           reject(loginError(msg.data.error));
@@ -318,18 +328,15 @@ export class PermitElements {
         throw error;
       }
       frameWindow = iframe.contentWindow;
-      // No answer can come once the iframe is gone: login() resolves false, as for any
-      // login that did not connect. After an answer, resolve() is a no-op.
+      // No answer can come once the iframe is gone: login() rejects. After an answer,
+      // reject() is a no-op.
       setTimeout(() => {
         iframe.remove();
         stopListening();
-        if (!answered) {
-          console.warn(
-            'The Permit Elements login did not answer; not connected. A deployment other '
-            + 'than Permit SaaS must pass its API URL as permitApiUrl.',
-          );
-        }
-        resolve(false);
+        reject(new Error(
+          'The Permit Elements login did not answer; not connected. A deployment other '
+          + 'than Permit SaaS must pass its API URL as permitApiUrl.',
+        ));
       }, IFRAME_LIFETIME_MS);
     });
 

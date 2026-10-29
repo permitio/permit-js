@@ -59,6 +59,9 @@ afterEach(() => {
   delete (global as any).document
 })
 
+// A login without an answer says that a deployment other than Permit SaaS must pass permitApiUrl.
+const NO_ANSWER = /did not answer.*permitApiUrl/
+
 const flush = () => new Promise(jest.requireActual("timers").setImmediate)
 
 function post(msg: { origin: string; source: unknown; data: unknown }) {
@@ -203,7 +206,7 @@ test("login ignores answers from another origin or another window, then times ou
   expect(elements.me).toBeUndefined()
 
   jest.advanceTimersByTime(3000)
-  await expect(login).resolves.toBe(false)
+  await expect(login).rejects.toThrow(NO_ANSWER)
   expect(elements.isConnected).toBe(false)
   expect(listeners.size).toBe(0)
   expect(appended).toHaveLength(0)
@@ -231,7 +234,7 @@ test("once its iframe is gone, login ignores a message without a source", async 
   post({ origin: "https://embed.api.permit.io", source: null, data: { success: true, me: {} } })
   jest.advanceTimersByTime(3000)
 
-  await expect(login).resolves.toBe(false)
+  await expect(login).rejects.toThrow(NO_ANSWER)
   expect(elements.isConnected).toBe(false)
 })
 
@@ -254,7 +257,7 @@ test("the timeout still settles login when the page already removed the iframe",
 
   jest.advanceTimersByTime(3000)
 
-  await expect(login).resolves.toBe(false)
+  await expect(login).rejects.toThrow(NO_ANSWER)
   expect(listeners.size).toBe(0)
 })
 
@@ -308,6 +311,74 @@ test("login, logout and login again run in that order", async () => {
   post({ origin: "https://embed.api.permit.io", source: secondLoginIframe.contentWindow, data: { success: true, me: {} } })
   await expect(again).resolves.toBe(true)
   expect(elements.isConnected).toBe(true)
+})
+
+test("a login after the one before a running logout settles still waits for that logout", async () => {
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements)
+  const logout = elements.logout()
+  post({
+    origin: `https://${ENV_ID}.embed.api.permit.io`,
+    source: iframe.contentWindow,
+    data: { success: true, me: { actor: { env_id: ENV_ID } } },
+  })
+  await expect(login).resolves.toBe(true)
+  await flush()
+  const logoutIframe = appended[appended.length - 1]
+  expect(logoutIframe.src).toBe(`https://${ENV_ID}.embed.api.permit.io/v2/auth/logout`)
+
+  const before = [...appended]
+  const again = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie })
+  await flush()
+  expect(appended).toEqual(before)
+
+  logoutIframe.onload()
+  await expect(logout).resolves.toBe(true)
+  await flush()
+  const againIframe = appended[appended.length - 1]
+  expect(before).not.toContain(againIframe)
+  post({ origin: "https://embed.api.permit.io", source: againIframe.contentWindow, data: { success: true, me: {} } })
+  await expect(again).resolves.toBe(true)
+})
+
+test("login hands its caller a promise nothing else handles, so an ignored error is reported", async () => {
+  // Node and browsers report a rejection as unhandled only if no handler was ever attached.
+  const handled = new Set<unknown>()
+  const then = Promise.prototype.then
+  jest.spyOn(Promise.prototype, "then").mockImplementation(function (this: Promise<unknown>, onFulfilled, onRejected) {
+    if (typeof onRejected === "function") handled.add(this)
+    return then.call(this, onFulfilled, onRejected)
+  })
+  const elements = new PermitElements()
+  const { login, iframe } = startLogin(elements)
+  const logout = elements.logout()
+
+  expect(handled.has(login)).toBe(false)
+  expect(handled.has(logout)).toBe(false)
+  post({ origin: "https://embed.api.permit.io", source: iframe.contentWindow, data: { success: false, error: "no" } })
+  await expect(login).rejects.toBe("no")
+  await expect(logout).resolves.toBe(false)
+})
+
+test("a login whose request stalls gives up, and the logout behind it runs", async () => {
+  jest.spyOn(console, "error").mockImplementation(() => undefined)
+  jest.spyOn(ky, "post").mockImplementation((_url, options: any) => ({
+    json: () => new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(new Error("aborted")))
+    }),
+  }) as never)
+  const elements = new PermitElements()
+  const login = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.bearer, token: "t" })
+  const logout = elements.logout("https://app.example.com/logout")
+  await flush()
+  expect(appended).toHaveLength(0)
+
+  jest.advanceTimersByTime(10000)
+  await expect(login).rejects.toThrow("Error while trying to login")
+  await flush()
+  expect(appended.map((iframe) => iframe.src)).toEqual(["https://app.example.com/logout"])
+  appended[0].onload()
+  await expect(logout).resolves.toBe(true)
 })
 
 test("a second logout waits for the first", async () => {
@@ -492,7 +563,7 @@ test("login waits for a logout still loading", async () => {
   expect(appended).toHaveLength(1)
   expect(appended[0]).not.toBe(logoutIframe)
   jest.advanceTimersByTime(3000)
-  await expect(login).resolves.toBe(false)
+  await expect(login).rejects.toThrow(NO_ANSWER)
 })
 
 test("logout with an invalid API URL loads nothing", async () => {
