@@ -12,13 +12,27 @@ const DASHED_ENV_ID = "01234567-89ab-cdef-0123-456789abcdef"
 let listeners: Set<(msg: any) => void>
 let appended: any[]
 
+// As in a browser, an iframe has a contentWindow only while it is in the document.
 function makeElement(): any {
-  const element: any = { style: {}, contentWindow: { postMessage: jest.fn() } }
+  const element: any = { style: {}, contentWindow: null }
   element.remove = () => {
     const index = appended.indexOf(element)
     if (index >= 0) appended.splice(index, 1)
+    element.contentWindow = null
   }
   return element
+}
+
+function attach(element: any) {
+  appended.push(element)
+  element.contentWindow = { postMessage: jest.fn() }
+}
+
+// For a test where approve() must refuse before it sends anything.
+function refuseRequests() {
+  return jest.spyOn(ky, "post").mockImplementation(() => {
+    throw new Error("unexpected request")
+  })
 }
 
 beforeEach(() => {
@@ -32,7 +46,7 @@ beforeEach(() => {
     getElementById: () => null,
     querySelector: () => null,
     createElement: makeElement,
-    body: { appendChild: (element: any) => appended.push(element) },
+    body: { appendChild: attach },
   }
   jest.useFakeTimers()
 })
@@ -193,7 +207,6 @@ test("once its iframe is gone, login ignores a message without a source", async 
   const elements = new PermitElements()
   const { login, iframe } = startLogin(elements)
   iframe.remove()
-  iframe.contentWindow = null
 
   post({ origin: "https://embed.api.permit.io", source: null, data: { success: true, me: {} } })
   jest.advanceTimersByTime(3000)
@@ -434,7 +447,8 @@ test("logout with an invalid API URL loads nothing", async () => {
   expect(appended).toHaveLength(0)
 })
 
-test("approve posts to the given deployment", async () => {
+test("approve refuses a permitApiUrl that is not a URL", async () => {
+  const kyPost = refuseRequests()
   const elements = new PermitElements()
 
   await expect(
@@ -442,6 +456,7 @@ test("approve posts to the given deployment", async () => {
       inviteCode: "code", email: "a@example.com", token: "t", envId: ENV_ID, permitApiUrl: "not a url",
     }),
   ).rejects.toThrow("permitApiUrl an http(s) URL")
+  expect(kyPost).not.toHaveBeenCalled()
 })
 
 test("approve posts to the embed origin of the login's deployment", async () => {
@@ -468,7 +483,7 @@ test("approve puts the invite code in its URL as one path segment", async () => 
 })
 
 test.each(["", ".", ".."])("approve refuses the invite code %p", async (inviteCode) => {
-  const post = jest.spyOn(ky, "post")
+  const post = refuseRequests()
   const elements = new PermitElements()
 
   await expect(
@@ -493,15 +508,18 @@ test("approve after a login posts to the origin that answered it", async () => {
 })
 
 test("approve refuses an envId that is not an environment id", async () => {
+  const kyPost = refuseRequests()
   const elements = new PermitElements()
 
   await expect(
     elements.approve({ inviteCode: "code", email: "a@example.com", token: "t", envId: "example.com/x?" }),
   ).rejects.toThrow("envId must be a Permit environment id")
+  expect(kyPost).not.toHaveBeenCalled()
 })
 
 test("sendTokenToIframe stops only on the element iframe's confirmation", () => {
   const iframe = makeElement()
+  attach(iframe)
   ;(global as any).document.querySelector = () => iframe
   const elementIframeUrl = "https://elements.example.com/"
 
@@ -521,6 +539,7 @@ test("sendTokenToIframe stops only on the element iframe's confirmation", () => 
 test("sendTokenToIframe stops listening once it gives up", () => {
   jest.spyOn(console, "error").mockImplementation(() => undefined)
   const iframe = makeElement()
+  attach(iframe)
   ;(global as any).document.querySelector = () => iframe
 
   sendTokenToIframe("token", "https://elements.example.com/")
