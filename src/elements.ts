@@ -182,9 +182,11 @@ export class PermitElements {
     // ky's own timeout ends once the headers arrive; this abort also stops the body read.
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), LOGIN_REQUEST_MS);
-    // Started inside the chain, so a request ky refuses at once takes the same catch.
+    // The options are taken now: approve() replaces this.config's headers. Only the call is
+    // deferred, so a request ky refuses at once takes the same catch.
+    const options = { json: postData, ...this.config, signal: abort.signal };
     return Promise.resolve()
-      .then(() => ky.post(loginUrl, { json: postData, ...this.config, signal: abort.signal }).json())
+      .then(() => ky.post(loginUrl, options).json())
       .then((data: any) => {
         clearTimeout(timer);
         if (loginMethod === LoginMethod.frontendOnly) {

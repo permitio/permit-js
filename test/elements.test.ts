@@ -443,6 +443,23 @@ test("a login whose request stalls gives up, and the logout behind it runs", asy
   await expect(logout).resolves.toBe(true)
 })
 
+test("a bearer login sends its own token even when approve() is called in the same tick", async () => {
+  const kyPost = jest.spyOn(ky, "post").mockImplementation(() => ({
+    json: () => Promise.resolve({ url: "https://app.example.com/frame" }),
+  }) as never)
+  const elements = new PermitElements()
+
+  const login = elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.bearer, token: "login-token" })
+  const approve = elements.approve({ inviteCode: "code", email: "a@example.com", token: "approve-token", envId: ENV_ID })
+  await approve
+  await flush()
+
+  const loginCall = kyPost.mock.calls.find(([url]) => url === "https://app.example.com/login") as any
+  expect(loginCall[1].headers).toEqual({ Authorization: "Bearer login-token" })
+  jest.advanceTimersByTime(3000)
+  await expect(login).rejects.toThrow(NO_ANSWER)
+})
+
 test("a login request ky refuses at once rejects with the login error and leaves no timer", async () => {
   jest.spyOn(console, "error").mockImplementation(() => undefined)
   jest.spyOn(ky, "post").mockImplementation(() => {
