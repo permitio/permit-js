@@ -20,8 +20,9 @@ export interface LoginInterface {
   // origin (`<env id>.embed.<its host>`, or the API URL's own origin on localhost or an IP
   // address), so a deployment other than Permit SaaS must pass it.
   permitApiUrl?: string
-  // More origins a login answer is accepted from, exactly as `event.origin` spells them,
-  // e.g. the origin of a self-hosted deployment's login error page.
+  // More origins a login error answer is accepted from, exactly as `event.origin` spells
+  // them, e.g. the origin of a self-hosted deployment's login error page. A success answer
+  // is never taken from them.
   trustedOrigins?: string[]
   elementIframeUrl?: string
 }
@@ -45,6 +46,8 @@ export interface FoAzInterface {
 export interface Elements {
   login: ({}: LoginInterface) => Promise<boolean>
   approve: ({inviteCode, email, token, envId, attributes}: ApproveInterface) => Promise<any>
+  // Resolves true once the logout URL (logoutUrl, or that of the session this page logged
+  // in) has loaded or after 10 seconds, or false when no session is known here to end.
   logout: (logoutUrl?: string) => Promise<boolean>
 }
 

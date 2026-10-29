@@ -96,7 +96,8 @@ export class PermitElements {
   isConnected: boolean;
   me?: any;
   isDev = false;
-  // The API URL of the last successful login, so logout() and approve() reach its deployment.
+  // The API URL of the deployment that answered the last successful login, so logout() and
+  // approve() reach it.
   permitApiUrl = PERMIT_API_URL;
   // The origin that answered the last successful login: it holds the session logout() ends.
   private sessionOrigin?: string;
@@ -283,23 +284,26 @@ export class PermitElements {
       let frameWindow: Window | null = null;
       const stopListening = () => window.removeEventListener("message", onMessage, false);
       const onMessage = (msg: MessageEvent) => {
-        // Only our login iframe answers, and only from a Permit embed origin.
-        if (
-          frameWindow === null
-          || msg.source !== frameWindow
-          || !isPermitEmbedOrigin(msg.origin, permitApiUrl, trustedOrigins)
-        ) {
+        // Only our login iframe answers, and only from a Permit embed origin. A success
+        // answer also sets where logout() and approve() go, so it is never taken from
+        // trustedOrigins, which are for error pages.
+        if (frameWindow === null || msg.source !== frameWindow) {
           return;
         }
-        if (msg.data?.success === true) {
+        if (msg.data?.success === true && isPermitEmbedOrigin(msg.origin, permitApiUrl)) {
           answered = true;
           stopListening();
           this.isConnected = true;
           this.me = msg.data.me;
-          this.permitApiUrl = permitApiUrl;
+          // An answer from Permit SaaS (e.g. through a proxy permitApiUrl) leaves later calls
+          // for other environments on Permit SaaS.
+          this.permitApiUrl = PERMIT_URL.test(msg.origin) ? PERMIT_API_URL : permitApiUrl;
           this.sessionOrigin = msg.origin;
           resolve(true);
-        } else if (msg.data?.success === false) {
+        } else if (
+          msg.data?.success === false
+          && isPermitEmbedOrigin(msg.origin, permitApiUrl, trustedOrigins)
+        ) {
           answered = true;
           stopListening();
           this.isConnected = false;
@@ -332,17 +336,21 @@ export class PermitElements {
   }
 
   approve = async ({inviteCode, email, token, envId, user_key_claim="sub", attributes = {}, permitApiUrl}: ApproveInterface) => {
-    const embedOrigin = permitApiUrl === undefined && this.sessionEnvId() === envIdHex(envId)
+    const envHex = envIdHex(envId);
+    if (envHex === undefined) {
+      throw new Error('approve: envId must be a Permit environment id');
+    }
+    const embedOrigin = permitApiUrl === undefined && this.sessionEnvId() === envHex
       ? this.sessionOrigin
-      : embedOriginFor(permitApiUrl ?? this.permitApiUrl, envId);
+      : embedOriginFor(permitApiUrl ?? this.permitApiUrl, envHex);
     if (embedOrigin === undefined) {
-      throw new Error('approve: envId must be a Permit environment id, and permitApiUrl an http(s) URL');
+      throw new Error('approve: permitApiUrl must be an http(s) URL');
     }
     if (typeof inviteCode !== 'string' || inviteCode === '' || inviteCode === '.' || inviteCode === '..') {
       throw new Error('approve: inviteCode must be an invite code');
     }
     // One path segment, whatever the code holds.
-    const approveUrl = `${embedOrigin}/v2/auth/${envIdHex(envId)}/user_invites/${encodeURIComponent(inviteCode)}/approve`;
+    const approveUrl = `${embedOrigin}/v2/auth/${envHex}/user_invites/${encodeURIComponent(inviteCode)}/approve`;
     const params = {
       email: email,
       user_key_claim: user_key_claim,
@@ -378,14 +386,12 @@ export class PermitElements {
     if (!logoutUrl) {
       // The session lives on the origin that answered its login; a session set some other
       // way (no login answer seen) is on the environment's embed origin.
-      const embedOrigin = this.sessionEnvId() !== undefined
-        ? this.sessionOrigin
-        : embedOriginFor(this.permitApiUrl, this.me?.actor?.env_id);
+      const embedOrigin = this.sessionOrigin ?? embedOriginFor(this.permitApiUrl, this.me?.actor?.env_id);
       if (embedOrigin === undefined) {
-        // No Elements login session to end here: a supportsPrivateBrowser login has no `me`.
+        // No Elements session known in this page (none logged in here, a page reload, a
+        // supportsPrivateBrowser login): nothing to end without logoutCustomUrl.
         this.me = undefined;
-        this.sessionOrigin = undefined;
-        return true;
+        return false;
       }
       logoutUrl = `${embedOrigin}/v2/auth/logout`;
     }
