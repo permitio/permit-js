@@ -46,15 +46,16 @@ function trustedOrigin(entry: string): string {
 /**
  * Whether `permitApiUrl` is a path on the page's own origin (e.g. `/permit-api`), which a
  * frontendOnly login's request resolves against the page. It names no deployment, so login
- * answers are then taken from Permit SaaS origins only.
+ * success answers are then taken from Permit SaaS origins only. The URL checked is the one
+ * requested, since `/` followed by `/v2/auth/...` would leave the page's origin.
  */
 function isPagePath(permitApiUrl: string): boolean {
-  if (!permitApiUrl.startsWith('/')) {
+  if (typeof permitApiUrl !== 'string' || !permitApiUrl.startsWith('/')) {
     return false;
   }
   const base = 'https://page.invalid';
   try {
-    return new URL(permitApiUrl, base).origin === base;
+    return new URL(`${permitApiUrl}/v2/auth/`, base).origin === base;
   } catch {
     return false;
   }

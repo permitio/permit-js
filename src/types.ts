@@ -21,7 +21,7 @@ export interface LoginInterface {
    * origin (`<env id>.embed.<its host>`, or the API URL's own origin on localhost or an IP
    * address), so a deployment other than Permit SaaS must pass it. A path on the page's
    * origin (e.g. `/permit-api`, a same-origin proxy for a frontendOnly login) is accepted
-   * too; answers are then taken from Permit SaaS origins only.
+   * too; success answers are then taken from Permit SaaS origins only.
    */
   permitApiUrl?: string
   /**
@@ -59,10 +59,11 @@ export interface Elements {
    * already connected; a supportsPrivateBrowser login resolves true once its login request
    * returns, and then hands the token to the element iframe (isConnected stays false).
    * Rejects with the error page's message (a string) on an error answer, and with an Error
-   * when an option the login method needs is missing, permitApiUrl or a trustedOrigins
-   * entry is not an http(s) URL, the login request fails or takes over 10 seconds, the
-   * login iframe can't be added, or it gets no answer within 3 seconds of being added (e.g.
-   * a deployment other than Permit SaaS did not pass permitApiUrl).
+   * when an option the login method needs is missing, permitApiUrl is neither an http(s)
+   * URL nor a path on the page's origin, a trustedOrigins entry is not an http(s) URL, the
+   * login request fails or takes over 10 seconds, the login iframe can't be added, or it
+   * gets no answer within 3 seconds of being added (e.g. a deployment other than Permit SaaS
+   * did not pass permitApiUrl).
    */
   login: ({}: LoginInterface) => Promise<boolean>
   approve: ({inviteCode, email, token, envId, attributes}: ApproveInterface) => Promise<any>

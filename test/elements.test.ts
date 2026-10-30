@@ -212,12 +212,18 @@ test.each([
   ["//api.example.com", false],
   ["/\\api.example.com", false],
   ["ftp://api.example.com", false],
+  // `/` and `/\t` would request `//v2/auth/...`, which leaves the page's origin.
+  ["/", false],
+  ["/\t", false],
+  [null, false],
 ])("login refuses the permitApiUrl %p (connected: %p)", async (permitApiUrl, connected) => {
   const elements = new PermitElements()
   elements.isConnected = connected
 
   await expect(
-    elements.login({ loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie, permitApiUrl }),
+    elements.login({
+      loginUrl: "https://app.example.com/login", loginMethod: LoginMethod.cookie, permitApiUrl: permitApiUrl as string,
+    }),
   ).rejects.toThrow("login: permitApiUrl must be an http(s) URL or a path on this page's origin")
   expect(appended).toHaveLength(0)
   expect(listeners.size).toBe(0)
