@@ -216,6 +216,9 @@ test.each([
   // which leaves the page's origin.
   ["//", false],
   ["/\t", false],
+  // Values that name a host, whatever base the check resolves them against.
+  ["//a.invalid", false],
+  ["/\\b.invalid", false],
   [null, false],
 ])("login refuses the permitApiUrl %p (connected: %p)", async (permitApiUrl, connected) => {
   const elements = new PermitElements()

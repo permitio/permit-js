@@ -56,9 +56,10 @@ function pagePath(permitApiUrl: string): string | undefined {
     return undefined;
   }
   const path = permitApiUrl.endsWith('/') ? permitApiUrl.slice(0, -1) : permitApiUrl;
-  const base = 'https://page.invalid';
+  // Against two bases, since a value that names a host could match one of them.
+  const keepsOrigin = (base: string) => new URL(`${path}/v2/auth/`, base).origin === base;
   try {
-    return new URL(`${path}/v2/auth/`, base).origin === base ? path : undefined;
+    return keepsOrigin('https://a.invalid') && keepsOrigin('https://b.invalid') ? path : undefined;
   } catch {
     return undefined;
   }
@@ -271,8 +272,8 @@ export class PermitElements {
     permitApiUrl = PERMIT_API_URL,
     trustedOrigins = [],
   }: LoginInterface): Promise<boolean> => {
-    const path = apiUrl(permitApiUrl) === undefined ? pagePath(permitApiUrl) : undefined;
-    if (apiUrl(permitApiUrl) === undefined && path === undefined) {
+    const path = pagePath(permitApiUrl);
+    if (path === undefined && apiUrl(permitApiUrl) === undefined) {
       throw new Error("login: permitApiUrl must be an http(s) URL or a path on this page's origin");
     }
     permitApiUrl = path ?? permitApiUrl;
