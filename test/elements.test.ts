@@ -212,8 +212,9 @@ test.each([
   ["//api.example.com", false],
   ["/\\api.example.com", false],
   ["ftp://api.example.com", false],
-  // `/` and `/\t` would request `//v2/auth/...`, which leaves the page's origin.
-  ["/", false],
+  // `//` (`/` once its trailing `/` is dropped) and `/\t` would request `//v2/auth/...`,
+  // which leaves the page's origin.
+  ["//", false],
   ["/\t", false],
   [null, false],
 ])("login refuses the permitApiUrl %p (connected: %p)", async (permitApiUrl, connected) => {
@@ -825,6 +826,19 @@ test("after a login answered by the staging deployment it named, approve for ano
   expect(kyPost.mock.calls[0][0]).toBe(
     `https://${OTHER_ENV_ID}.embed.api.stg.permit.io/v2/auth/${OTHER_ENV_ID}/user_invites/code/approve`,
   )
+})
+
+test.each([
+  ["/", `/v2/auth/${ENV_ID}/elements_fe_login_as`],
+  ["/permit-api/", `/permit-api/v2/auth/${ENV_ID}/elements_fe_login_as`],
+])("a frontendOnly login drops one trailing / from the page path %p", async (permitApiUrl, requested) => {
+  const kyPost = jest.spyOn(ky, "post").mockImplementation(() => ({
+    json: () => Promise.resolve({ redirect_url: "https://app.example.com/frame" }),
+  }) as never)
+  const elements = new PermitElements()
+  void elements.login({ loginMethod: LoginMethod.frontendOnly, tenant: "t", userJwt: "jwt", envId: ENV_ID, permitApiUrl })
+  await flush()
+  expect(kyPost.mock.calls[0][0]).toBe(requested)
 })
 
 test("a frontendOnly login takes a permitApiUrl that is a path on the page's origin", async () => {

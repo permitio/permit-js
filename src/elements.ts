@@ -44,20 +44,23 @@ function trustedOrigin(entry: string): string {
 }
 
 /**
- * Whether `permitApiUrl` is a path on the page's own origin (e.g. `/permit-api`), which a
- * frontendOnly login's request resolves against the page. It names no deployment, so login
- * success answers are then taken from Permit SaaS origins only. The URL checked is the one
- * requested, since `/` followed by `/v2/auth/...` would leave the page's origin.
+ * `permitApiUrl` without one trailing `/`, if it is a path on the page's own origin (e.g.
+ * `/permit-api`, or `/` for the page's root), which a frontendOnly login's request
+ * resolves against the page; otherwise undefined. It names no deployment, so login success
+ * answers are then taken from Permit SaaS origins only. The URL checked is the one
+ * requested, since a path such as `//` followed by `/v2/auth/...` would leave the page's
+ * origin.
  */
-function isPagePath(permitApiUrl: string): boolean {
+function pagePath(permitApiUrl: string): string | undefined {
   if (typeof permitApiUrl !== 'string' || !permitApiUrl.startsWith('/')) {
-    return false;
+    return undefined;
   }
+  const path = permitApiUrl.endsWith('/') ? permitApiUrl.slice(0, -1) : permitApiUrl;
   const base = 'https://page.invalid';
   try {
-    return new URL(`${permitApiUrl}/v2/auth/`, base).origin === base;
+    return new URL(`${path}/v2/auth/`, base).origin === base ? path : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -268,9 +271,11 @@ export class PermitElements {
     permitApiUrl = PERMIT_API_URL,
     trustedOrigins = [],
   }: LoginInterface): Promise<boolean> => {
-    if (apiUrl(permitApiUrl) === undefined && !isPagePath(permitApiUrl)) {
+    const path = apiUrl(permitApiUrl) === undefined ? pagePath(permitApiUrl) : undefined;
+    if (apiUrl(permitApiUrl) === undefined && path === undefined) {
       throw new Error("login: permitApiUrl must be an http(s) URL or a path on this page's origin");
     }
+    permitApiUrl = path ?? permitApiUrl;
     const trusted = trustedOrigins.map(trustedOrigin);
     if (this.isConnected) {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
