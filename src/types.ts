@@ -33,9 +33,9 @@ export interface ApproveInterface {
   envId: string
   user_key_claim?: string
   /**
-   * @deprecated Sent but not applied: a user the approval creates starts with no attributes,
-   * and an existing user keeps its own. Set a user's attributes with an API key, through the
-   * Permit users API.
+   * @deprecated approve() still sends it, but it is not applied: a user the approval
+   * creates starts with no attributes, and an existing user keeps its own. Set a user's
+   * attributes from your backend, with an API key, through the Permit users API.
    */
   attributes?: Object
   // The deployment's API URL; defaults to that of the last login, or Permit SaaS.
