@@ -8,11 +8,11 @@ const PREFIX = "Error while trying to approve invite"
 const APPROVE_URL =
   `https://${ENV_ID}.embed.api.permit.io/v2/auth/${ENV_ID}/user_invites/invite-1/approve`
 const JSON_TYPE = { "content-type": "application/json" }
-// The PER-16765 refusal, as the backend's approve route words it.
+// The backend's 403 when the token is not the invitee's.
 const NOT_THE_INVITEE =
   "This token cannot approve this invite: it must carry the invitee's user key or verified email"
-// ServiceException.get_details() as the backend's standard error handler renders it, for the
-// approve route's unknown environment (404) and its refused user_key_claim (400).
+// The backend's standard error body, for the approve route's unknown environment (404) and its
+// refused user_key_claim (400).
 const STANDARD_NOT_FOUND = {
   id: "0b6c5d0e8f6a4c3e9b1d2a7f4e5c6d8a",
   title: "We could not find the requested object/s",
@@ -195,18 +195,7 @@ describe("B. the backend answered with an error status", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  test("B1 the PER-16765 refusal reads in full", async () => {
-    stubFetch(() => jsonResponse(403, { detail: NOT_THE_INVITEE }))
-
-    const { error } = await caught(approve())
-
-    expect(error.message).toBe(
-      "Error while trying to approve invite (403): This token cannot approve this invite: " +
-        "it must carry the invitee's user key or verified email",
-    )
-  })
-
-  test("B2 a 422's validation array is reported as JSON", async () => {
+  test("B2 a 422's validation array is reported by its msg, and kept whole as detail", async () => {
     const detail = [
       {
         loc: ["body", "email"],
@@ -221,12 +210,42 @@ describe("B. the backend answered with an error status", () => {
     const { error } = await caught(approve({ email: "not-an-email" }))
 
     expectApproveError(error, {
-      message:
-        'Error while trying to approve invite (422): [{"loc":["body","email"],' +
-        '"msg":"value is not a valid email address","type":"value_error.email"}]',
+      message: "Error while trying to approve invite (422): value is not a valid email address",
       status: 422,
       detail,
     })
+  })
+
+  test("B2 a list's non-empty string msgs are joined with '; '", async () => {
+    const detail = [
+      { loc: ["body", "email"], msg: "first" },
+      "text",
+      null,
+      { msg: 5 },
+      { msg: "" },
+      { loc: ["body", "attributes"], msg: "second" },
+    ]
+    stubFetch(() => jsonResponse(422, { detail }))
+
+    const { error } = await caught(approve())
+
+    expectApproveError(error, { message: `${PREFIX} (422): first; second`, status: 422, detail })
+  })
+
+  test.each([
+    {
+      detail: [{ loc: ["body", "email"], type: "missing" }],
+      shown: '[{"loc":["body","email"],"type":"missing"}]',
+    },
+    { detail: [{ msg: 5 }], shown: '[{"msg":5}]' },
+    { detail: [{ msg: "" }], shown: '[{"msg":""}]' },
+    { detail: ["text"], shown: '["text"]' },
+  ])("B2 a list with no non-empty string msg shows as JSON: $shown", async ({ detail, shown }) => {
+    stubFetch(() => jsonResponse(422, { detail }))
+
+    const { error } = await caught(approve())
+
+    expectApproveError(error, { message: `${PREFIX} (422): ${shown}`, status: 422, detail })
   })
 
   test.each([
@@ -241,6 +260,10 @@ describe("B. the backend answered with an error status", () => {
     const { error } = await caught(approve())
 
     expectApproveError(error, { message: `${PREFIX} (400): ${shown}`, status: 400, detail })
+  })
+
+  test("B3 a detail JSON cannot render gives the status alone", () => {
+    expect(new ApproveError(400, BigInt(10)).message).toBe(`${PREFIX} (400)`)
   })
 
   test("B3 a detail nested too deep to render gives the status alone", async () => {
@@ -356,9 +379,9 @@ describe("B. the backend answered with an error status", () => {
     expectApproveError(error, { message: `${PREFIX} (400)`, status: 400 })
   })
 
-  test("B9 a body that never finishes is given up on after 2 seconds", async () => {
+  test("B9 a body that never finishes is given up on and aborted after 2 seconds", async () => {
     jest.useFakeTimers(ONLY_TIMEOUTS_FAKE)
-    stubFetch(() => {
+    const fetchMock = stubFetch(() => {
       const body = new ReadableStream({
         start(controller) {
           controller.enqueue(new TextEncoder().encode('{"detail": '))
@@ -378,10 +401,14 @@ describe("B. the backend answered with an error status", () => {
     jest.advanceTimersByTime(1999)
     await flush()
     expect(settled).toBe(false)
+    const { signal } = fetchMock.mock.calls[0][0] as Request
+    expect(signal.aborted).toBe(false)
 
     jest.advanceTimersByTime(1)
     await flush()
     expect(settled).toBe(true)
+    // Aborting the request is what closes its connection.
+    expect(signal.aborted).toBe(true)
     expectApproveError((await result).error, { message: `${PREFIX} (403)`, status: 403 })
   })
 
@@ -389,14 +416,15 @@ describe("B. the backend answered with an error status", () => {
     { name: "a JSON body", status: 403, respond: () => jsonResponse(403, { detail: "x" }) },
     { name: "a body that is not JSON", status: 403, respond: () => textResponse(403, "Forbidden") },
     { name: "a body that fails mid-read", status: 500, respond: () => brokenBodyResponse(500) },
-  ])("B9 $name, read in time, leaves no timer behind", async ({ status, respond }) => {
+  ])("B9 $name, read in time, leaves no timer behind and no abort", async ({ status, respond }) => {
     jest.useFakeTimers(ONLY_TIMEOUTS_FAKE)
-    stubFetch(respond)
+    const fetchMock = stubFetch(respond)
 
     const { error } = await caught(approve())
 
     expect(error.status).toBe(status)
     expect(jest.getTimerCount()).toBe(0)
+    expect((fetchMock.mock.calls[0][0] as Request).signal.aborted).toBe(false)
   })
 })
 
@@ -538,8 +566,8 @@ describe("E. contract", () => {
 
     const { error } = await caught(approve({ token }))
 
-    // The error approve() caught names the header value, token included.
-    expect(String(consoleError.mock.calls[0][0].message)).toContain(TOKEN)
+    // The runtime's error for this header names its value, token included.
+    expect(() => new Headers({ authorization: `Bearer ${token}` })).toThrow(TOKEN)
     expectNoToken(error)
   })
 
