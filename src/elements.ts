@@ -1,4 +1,4 @@
-import ky from 'ky';
+import ky, { HTTPError } from 'ky';
 import { ApproveInterface, LoginInterface, LoginMethod } from './types'
 import {sendTokenToIframe} from "./sendToken";
 
@@ -13,6 +13,9 @@ const IFRAME_LIFETIME_MS = 3000;
 const LOGOUT_WAIT_MS = 10000;
 // How long a login request may take, its response body included.
 const LOGIN_REQUEST_MS = 10000;
+// ky stops timing a request once its headers arrive, so a failed approve's body read is bounded
+// here. A body still unread then is cancelled: the request is aborted, closing its connection.
+const ERROR_BODY_READ_MS = 2000;
 const ENV_ID = /^[0-9a-f]{32}$/;
 
 /** An environment id as the embed host spells it (32 hex digits), or undefined. */
@@ -126,6 +129,102 @@ function loginError(error: unknown): string {
   } catch {
     return error;
   }
+}
+
+// A reason as ApproveError's message shows it: a string as is, a list's non-empty string `msg`s
+// (a 422's validation errors) joined with '; ', anything else as JSON.
+function reasonText(detail: unknown): string {
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((entry) => (typeof entry === 'object' && entry !== null ? entry.msg : undefined))
+      .filter((msg): msg is string => typeof msg === 'string' && msg !== '');
+    if (msgs.length > 0) {
+      return msgs.join('; ');
+    }
+  }
+  return JSON.stringify(detail);
+}
+
+function approveErrorMessage(status?: number, detail?: unknown): string {
+  let message = 'Error while trying to approve invite';
+  if (status !== undefined) {
+    message += ` (${status})`;
+  }
+  if (detail === undefined || detail === null || detail === '') {
+    return message;
+  }
+  try {
+    return `${message}: ${reasonText(detail)}`;
+  } catch {
+    // A detail JSON.stringify throws on (nested deeper than its stack allows, or a BigInt given
+    // to the constructor) is left out.
+    return message;
+  }
+}
+
+/**
+ * approve() failed after its arguments were accepted (an envId, permitApiUrl or inviteCode it
+ * cannot use is refused first, with a plain Error). Where two copies of this SDK may share a
+ * page, match on `name`, which is 'ApproveError', rather than with instanceof; in TypeScript,
+ * cast to read `status` and `detail`:
+ *
+ * ```ts
+ * } catch (e) {
+ *   if (e instanceof Error && e.name === 'ApproveError') {
+ *     const { status, detail } = e as ApproveError;
+ *   }
+ * }
+ * ```
+ *
+ * When an error status came back, `status` is that status and `detail` the reason in its JSON
+ * body: the body's `detail` when it has that key (any JSON value, kept as is), else its
+ * `message` when that is a string. The message repeats a reason it can render (not a null or
+ * empty one): a string as is, a list's non-empty string `msg`s (a 422's validation errors)
+ * joined with '; ', anything else as JSON. It can include the request's and the invite's email,
+ * and a 422's message can repeat a submitted value.
+ *
+ * `status` undefined means approve() got no usable answer: a network failure, a timeout, an
+ * abort, a success answer whose body is not JSON, or a request ky could not build (a token with
+ * a character a header cannot carry, attributes JSON cannot encode). Only that last one is
+ * certain not to have reached the backend: any other failure, a 5xx from a gateway included,
+ * may come after the invite was approved.
+ */
+export class ApproveError extends Error {
+  constructor(readonly status?: number, readonly detail?: unknown) {
+    super(approveErrorMessage(status, detail));
+    this.name = 'ApproveError';
+  }
+}
+
+// ApproveError's `detail`, read from an error answer's body; undefined when the body has none or
+// is not read within ERROR_BODY_READ_MS, and then `abort`, the request's, is aborted.
+async function errorReason(response: Response, abort: AbortController): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stalled = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => {
+      abort.abort();
+      resolve(undefined);
+    }, ERROR_BODY_READ_MS);
+  });
+  let body: unknown;
+  try {
+    body = await Promise.race([response.json(), stalled]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (typeof body !== 'object' || body === null) {
+    return undefined;
+  }
+  const fields = body as Record<string, unknown>;
+  if ('detail' in fields) {
+    return fields.detail;
+  }
+  return typeof fields.message === 'string' ? fields.message : undefined;
 }
 
 export class PermitElements {
@@ -423,15 +522,18 @@ export class PermitElements {
       ...this.config,
       headers: { Authorization: `Bearer ${token}` }
     }
-    return ky
-      .post(approveUrl, {json: params, ...this.config}).json()
-      .then((data) => {
-        return data;
-      })
-      .catch((error) => {
-        console.error(error);
-        throw new Error('Error while trying to approve invite');
-      });
+    // Aborted when an error answer's body is not read in time.
+    const abort = new AbortController();
+    // ky.post can throw before any request is sent (a header or body it cannot build).
+    try {
+      return await ky.post(approveUrl, {json: params, ...this.config, signal: abort.signal}).json();
+    } catch (error) {
+      console.error(error);
+      if (!(error instanceof HTTPError)) {
+        throw new ApproveError();
+      }
+      throw new ApproveError(error.response.status, await errorReason(error.response, abort));
+    }
   }
 
 

@@ -67,6 +67,14 @@ export interface Elements {
    * did not pass permitApiUrl).
    */
   login: ({}: LoginInterface) => Promise<boolean>
+  /**
+   * Approves the invite `inviteCode` with the invitee's `token`, and resolves to the answer's
+   * JSON body (an empty string for an empty one). Rejects with a plain Error, before any
+   * request, when envId is not a Permit environment id, permitApiUrl is not an http(s) URL or
+   * inviteCode is not an invite code; otherwise with an ApproveError (exported from the
+   * package), whose `status` is the HTTP status of an error answer and `detail` the backend's
+   * reason.
+   */
   approve: ({inviteCode, email, token, envId, attributes}: ApproveInterface) => Promise<any>
   /**
    * Runs after any login() or logout() still running. Resolves true once the logout URL
