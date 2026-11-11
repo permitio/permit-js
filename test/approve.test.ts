@@ -543,21 +543,30 @@ describe("E. contract", () => {
     expectNoToken(error)
   })
 
+  const BAD_ENV = "approve: envId must be a Permit environment id"
+  const BAD_URL = "approve: permitApiUrl must be an http(s) URL"
+
   test.each([
-    { name: "an API URL that is not a URL", overrides: { permitApiUrl: "not a url" } },
-    { name: "an env id with a host in it", overrides: { envId: "example.com/x?" } },
-    { name: "an empty env id", overrides: { envId: "" } },
-    { name: "an env id of 31 hex digits", overrides: { envId: ENV_ID.slice(1) } },
-  ])("E4 $name is refused before any request, with a plain Error", async ({ overrides }) => {
+    {
+      name: "an API URL that is not a URL",
+      overrides: { permitApiUrl: "not a url" },
+      message: BAD_URL,
+    },
+    {
+      name: "an env id with a host in it",
+      overrides: { envId: "example.com/x?" },
+      message: BAD_ENV,
+    },
+    { name: "an empty env id", overrides: { envId: "" }, message: BAD_ENV },
+    { name: "an env id of 31 hex digits", overrides: { envId: ENV_ID.slice(1) }, message: BAD_ENV },
+  ])("E4 $name is refused before any request, with a plain Error", async (row) => {
     const fetchMock = stubFetch(() => jsonResponse(200, {}))
 
-    const { error } = await caught(approve(overrides))
+    const { error } = await caught(approve(row.overrides))
 
     expect(error).toBeInstanceOf(Error)
     expect(error).not.toBeInstanceOf(ApproveError)
-    expect(error.message).toBe(
-      "approve: envId must be a Permit environment id, and permitApiUrl an http(s) URL",
-    )
+    expect(error.message).toBe(row.message)
     expect(fetchMock).not.toHaveBeenCalled()
     expect(consoleError).not.toHaveBeenCalled()
   })

@@ -1,6 +1,10 @@
 {
   "name": "@permitio/permit-js",
   "version": "0.5.4",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/permitio/permit-js.git"
+  },
   "description": "Permitio is a frontend package that makes it easy to use permit abilities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
