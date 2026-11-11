@@ -5,13 +5,16 @@ import {sendTokenToIframe} from "./sendToken";
 // The embed origins Permit SaaS serves Elements from.
 export const PERMIT_URL = /^https:\/\/([a-z0-9]{32}\.)?embed(\.api)?(\.stg)?\.permit\.io$/;
 const PERMIT_API_URL = "https://api.permit.io";
+const PERMIT_STG_API_URL = "https://api.stg.permit.io";
 // How long the login iframe lives; no answer can arrive once it is removed.
 const IFRAME_LIFETIME_MS = 3000;
 // How long logout() waits for its request before resolving. Its iframe stays until it has
 // loaded, so a slow request still completes.
 const LOGOUT_WAIT_MS = 10000;
+// How long a login request may take, its response body included.
+const LOGIN_REQUEST_MS = 10000;
 // ky stops timing a request once its headers arrive, so a failed approve's body read is bounded
-// here. A body still unread then is abandoned, not cancelled.
+// here. A body still unread then is cancelled: the request is aborted, closing its connection.
 const ERROR_BODY_READ_MS = 2000;
 const ENV_ID = /^[0-9a-f]{32}$/;
 
@@ -29,6 +32,37 @@ function apiUrl(permitApiUrl: string): URL | undefined {
   try {
     const api = new URL(permitApiUrl);
     return api.protocol === 'https:' || api.protocol === 'http:' ? api : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A `trustedOrigins` entry as `event.origin` spells it; throws unless it is an http(s) URL. */
+function trustedOrigin(entry: string): string {
+  const url = apiUrl(entry);
+  if (url === undefined) {
+    throw new Error(`login: trustedOrigins entry ${entry} must be an http(s) URL`);
+  }
+  return url.origin;
+}
+
+/**
+ * `permitApiUrl` without one trailing `/`, if it is a path on the page's own origin (e.g.
+ * `/permit-api`, or `/` for the page's root), which a frontendOnly login's request
+ * resolves against the page; otherwise undefined. It names no deployment, so login success
+ * answers are then taken from Permit SaaS origins only. The URL checked is the one
+ * requested, since a path such as `//` followed by `/v2/auth/...` would leave the page's
+ * origin.
+ */
+function pagePath(permitApiUrl: string): string | undefined {
+  if (typeof permitApiUrl !== 'string' || !permitApiUrl.startsWith('/')) {
+    return undefined;
+  }
+  const path = permitApiUrl.endsWith('/') ? permitApiUrl.slice(0, -1) : permitApiUrl;
+  // Against two bases, since a value that names a host could match one of them.
+  const keepsOrigin = (base: string) => new URL(`${path}/v2/auth/`, base).origin === base;
+  try {
+    return keepsOrigin('https://a.invalid') && keepsOrigin('https://b.invalid') ? path : undefined;
   } catch {
     return undefined;
   }
@@ -62,9 +96,12 @@ export function isPermitEmbedOrigin(
   permitApiUrl: string = PERMIT_API_URL,
   trustedOrigins: readonly string[] = [],
 ): boolean {
-  if (PERMIT_URL.test(origin) || trustedOrigins.includes(origin)) {
-    return true;
-  }
+  return PERMIT_URL.test(origin) || trustedOrigins.includes(origin)
+    || isDeploymentEmbedOrigin(origin, permitApiUrl);
+}
+
+/** Whether `origin` is the embed origin of an environment on the deployment `permitApiUrl` names. */
+function isDeploymentEmbedOrigin(origin: string, permitApiUrl: string): boolean {
   const api = apiUrl(permitApiUrl);
   if (api === undefined) {
     return false;
@@ -94,6 +131,23 @@ function loginError(error: unknown): string {
   }
 }
 
+// A reason as ApproveError's message shows it: a string as is, a list's non-empty string `msg`s
+// (a 422's validation errors) joined with '; ', anything else as JSON.
+function reasonText(detail: unknown): string {
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((entry) => (typeof entry === 'object' && entry !== null ? entry.msg : undefined))
+      .filter((msg): msg is string => typeof msg === 'string' && msg !== '');
+    if (msgs.length > 0) {
+      return msgs.join('; ');
+    }
+  }
+  return JSON.stringify(detail);
+}
+
 function approveErrorMessage(status?: number, detail?: unknown): string {
   let message = 'Error while trying to approve invite';
   if (status !== undefined) {
@@ -103,9 +157,10 @@ function approveErrorMessage(status?: number, detail?: unknown): string {
     return message;
   }
   try {
-    return `${message}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`;
+    return `${message}: ${reasonText(detail)}`;
   } catch {
-    // A detail JSON.stringify throws on (nested deeper than its stack allows) is left out.
+    // A detail JSON.stringify throws on (nested deeper than its stack allows, or a BigInt given
+    // to the constructor) is left out.
     return message;
   }
 }
@@ -113,18 +168,29 @@ function approveErrorMessage(status?: number, detail?: unknown): string {
 /**
  * approve() failed after its arguments were accepted (an envId, permitApiUrl or inviteCode it
  * cannot use is refused first, with a plain Error). Where two copies of this SDK may share a
- * page, match on `name`, which is 'ApproveError', rather than with instanceof.
+ * page, match on `name`, which is 'ApproveError', rather than with instanceof; in TypeScript,
+ * cast to read `status` and `detail`:
+ *
+ * ```ts
+ * } catch (e) {
+ *   if (e instanceof Error && e.name === 'ApproveError') {
+ *     const { status, detail } = e as ApproveError;
+ *   }
+ * }
+ * ```
  *
  * When an error status came back, `status` is that status and `detail` the reason in its JSON
  * body: the body's `detail` when it has that key (any JSON value, kept as is), else its
  * `message` when that is a string. The message repeats a reason it can render (not a null or
- * empty one), which can include the request's and the invite's email.
+ * empty one): a string as is, a list's non-empty string `msg`s (a 422's validation errors)
+ * joined with '; ', anything else as JSON. It can include the request's and the invite's email,
+ * and a 422's message can repeat a submitted value.
  *
  * `status` undefined means approve() got no usable answer: a network failure, a timeout, an
  * abort, a success answer whose body is not JSON, or a request ky could not build (a token with
- * a character a header cannot carry, attributes JSON cannot encode). Only that last one never
- * reached the backend: any other failure, a 5xx from a gateway included, may come after the
- * invite was approved.
+ * a character a header cannot carry, attributes JSON cannot encode). Only that last one is
+ * certain not to have reached the backend: any other failure, a 5xx from a gateway included,
+ * may come after the invite was approved.
  */
 export class ApproveError extends Error {
   constructor(readonly status?: number, readonly detail?: unknown) {
@@ -134,11 +200,14 @@ export class ApproveError extends Error {
 }
 
 // ApproveError's `detail`, read from an error answer's body; undefined when the body has none or
-// is not read within ERROR_BODY_READ_MS.
-async function errorReason(response: Response): Promise<unknown> {
+// is not read within ERROR_BODY_READ_MS, and then `abort`, the request's, is aborted.
+async function errorReason(response: Response, abort: AbortController): Promise<unknown> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const stalled = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), ERROR_BODY_READ_MS);
+    timer = setTimeout(() => {
+      abort.abort();
+      resolve(undefined);
+    }, ERROR_BODY_READ_MS);
   });
   let body: unknown;
   try {
@@ -163,7 +232,8 @@ export class PermitElements {
   isConnected: boolean;
   me?: any;
   isDev = false;
-  // The API URL of the last successful login, so logout() and approve() reach its deployment.
+  // The API URL of the deployment that answered the last successful login, so logout() and
+  // approve() reach it.
   permitApiUrl = PERMIT_API_URL;
   // The origin that answered the last successful login: it holds the session logout() ends.
   private sessionOrigin?: string;
@@ -231,9 +301,16 @@ export class PermitElements {
       }
     }
 
-    return ky.post(loginUrl, { json: postData, ...this.config })
-      .json()
+    // ky's own timeout ends once the headers arrive; this abort also stops the body read.
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), LOGIN_REQUEST_MS);
+    // The options are taken now: approve() replaces this.config's headers. Only the call is
+    // deferred, so a request ky refuses at once takes the same catch.
+    const options = { json: postData, ...this.config, signal: abort.signal };
+    return Promise.resolve()
+      .then(() => ky.post(loginUrl, options).json())
       .then((data: any) => {
+        clearTimeout(timer);
         if (loginMethod === LoginMethod.frontendOnly) {
           return data.redirect_url;
         } else {
@@ -241,8 +318,12 @@ export class PermitElements {
         }
       })
       .catch((error) => {
+        clearTimeout(timer);
         this.isConnected = false;
         console.error(error);
+        if (abort.signal.aborted) {
+          throw new Error(`The Permit Elements login request took longer than ${LOGIN_REQUEST_MS / 1000} seconds`);
+        }
         throw new Error('Error while trying to login, make sure that you\'ve created a login as route in your application and passed the right credentials');
       });
   }
@@ -254,13 +335,25 @@ export class PermitElements {
    */
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.pending;
-    const run = previous === undefined ? operation() : previous.then(operation);
-    const settled = run.then(() => undefined, () => undefined);
+    let release!: () => void;
+    const settled = new Promise<void>((resolve) => { release = resolve; });
     this.pending = settled;
-    settled.then(() => {
+    const done = () => {
       if (this.pending === settled) this.pending = undefined;
-    });
-    return run;
+      release();
+    };
+    let run: Promise<T>;
+    try {
+      run = previous === undefined ? operation() : previous.then(operation);
+    } catch (error) {
+      // e.g. login() called without arguments: its parameters are read before the async body.
+      run = Promise.reject(error);
+    }
+    // The caller gets a promise of its own, so a rejection it ignores is still reported.
+    return run.then(
+      (value) => { done(); return value; },
+      (error) => { done(); throw error; },
+    );
   }
 
   login = (args: LoginInterface): Promise<boolean> => this.serialize(() => this.startLogin(args));
@@ -278,6 +371,12 @@ export class PermitElements {
     permitApiUrl = PERMIT_API_URL,
     trustedOrigins = [],
   }: LoginInterface): Promise<boolean> => {
+    const path = pagePath(permitApiUrl);
+    if (path === undefined && apiUrl(permitApiUrl) === undefined) {
+      throw new Error("login: permitApiUrl must be an http(s) URL or a path on this page's origin");
+    }
+    permitApiUrl = path ?? permitApiUrl;
+    const trusted = trustedOrigins.map(trustedOrigin);
     if (this.isConnected) {
       console.info('Already connected, if you want to connect to another tenant, please logout first');
       return Promise.resolve(true);
@@ -344,30 +443,33 @@ export class PermitElements {
     iframe.style.left = '-10px';
     iframe.src = iframeUrl;
     return new Promise<boolean>((resolve, reject) => {
-      let answered = false;
       // The login iframe's window, kept from when it was added: removing the iframe nulls
       // its contentWindow, which must not then match a message without a source.
       let frameWindow: Window | null = null;
       const stopListening = () => window.removeEventListener("message", onMessage, false);
       const onMessage = (msg: MessageEvent) => {
-        // Only our login iframe answers, and only from a Permit embed origin.
-        if (
-          frameWindow === null
-          || msg.source !== frameWindow
-          || !isPermitEmbedOrigin(msg.origin, permitApiUrl, trustedOrigins)
-        ) {
+        // Only our login iframe answers, and only from a Permit embed origin. A success
+        // answer also sets where logout() and approve() go, so it is never taken from
+        // trustedOrigins, which are for error pages.
+        if (frameWindow === null || msg.source !== frameWindow) {
           return;
         }
-        if (msg.data?.success === true) {
-          answered = true;
+        if (msg.data?.success === true && isPermitEmbedOrigin(msg.origin, permitApiUrl)) {
           stopListening();
           this.isConnected = true;
           this.me = msg.data.me;
-          this.permitApiUrl = permitApiUrl;
+          // Later calls for other environments go to the deployment that answered: the one
+          // permitApiUrl names, or else Permit SaaS, staging or production by the answer's
+          // origin (e.g. a login through a proxy permitApiUrl).
+          this.permitApiUrl = isDeploymentEmbedOrigin(msg.origin, permitApiUrl)
+            ? permitApiUrl
+            : /\.stg\.permit\.io$/.test(msg.origin) ? PERMIT_STG_API_URL : PERMIT_API_URL;
           this.sessionOrigin = msg.origin;
           resolve(true);
-        } else if (msg.data?.success === false) {
-          answered = true;
+        } else if (
+          msg.data?.success === false
+          && isPermitEmbedOrigin(msg.origin, permitApiUrl, trusted)
+        ) {
           stopListening();
           this.isConnected = false;
           reject(loginError(msg.data.error));
@@ -381,35 +483,36 @@ export class PermitElements {
         throw error;
       }
       frameWindow = iframe.contentWindow;
-      // No answer can come once the iframe is gone: login() resolves false, as for any
-      // login that did not connect. After an answer, resolve() is a no-op.
+      // No answer can come once the iframe is gone: login() rejects. After an answer,
+      // reject() is a no-op.
       setTimeout(() => {
         iframe.remove();
         stopListening();
-        if (!answered) {
-          console.warn(
-            'The Permit Elements login did not answer; not connected. A deployment other '
-            + 'than Permit SaaS must pass its API URL as permitApiUrl.',
-          );
-        }
-        resolve(false);
+        reject(new Error(
+          'The Permit Elements login did not answer; not connected. A deployment other '
+          + 'than Permit SaaS must pass its API URL as permitApiUrl.',
+        ));
       }, IFRAME_LIFETIME_MS);
     });
 
   }
 
   approve = async ({inviteCode, email, token, envId, user_key_claim="sub", attributes = {}, permitApiUrl}: ApproveInterface) => {
-    const embedOrigin = permitApiUrl === undefined && this.sessionEnvId() === envIdHex(envId)
+    const envHex = envIdHex(envId);
+    if (envHex === undefined) {
+      throw new Error('approve: envId must be a Permit environment id');
+    }
+    const embedOrigin = permitApiUrl === undefined && this.sessionEnvId() === envHex
       ? this.sessionOrigin
-      : embedOriginFor(permitApiUrl ?? this.permitApiUrl, envId);
+      : embedOriginFor(permitApiUrl ?? this.permitApiUrl, envHex);
     if (embedOrigin === undefined) {
-      throw new Error('approve: envId must be a Permit environment id, and permitApiUrl an http(s) URL');
+      throw new Error('approve: permitApiUrl must be an http(s) URL');
     }
     if (typeof inviteCode !== 'string' || inviteCode === '' || inviteCode === '.' || inviteCode === '..') {
       throw new Error('approve: inviteCode must be an invite code');
     }
     // One path segment, whatever the code holds.
-    const approveUrl = `${embedOrigin}/v2/auth/${envIdHex(envId)}/user_invites/${encodeURIComponent(inviteCode)}/approve`;
+    const approveUrl = `${embedOrigin}/v2/auth/${envHex}/user_invites/${encodeURIComponent(inviteCode)}/approve`;
     const params = {
       email: email,
       user_key_claim: user_key_claim,
@@ -419,15 +522,17 @@ export class PermitElements {
       ...this.config,
       headers: { Authorization: `Bearer ${token}` }
     }
+    // Aborted when an error answer's body is not read in time.
+    const abort = new AbortController();
     // ky.post can throw before any request is sent (a header or body it cannot build).
     try {
-      return await ky.post(approveUrl, {json: params, ...this.config}).json();
+      return await ky.post(approveUrl, {json: params, ...this.config, signal: abort.signal}).json();
     } catch (error) {
       console.error(error);
       if (!(error instanceof HTTPError)) {
         throw new ApproveError();
       }
-      throw new ApproveError(error.response.status, await errorReason(error.response));
+      throw new ApproveError(error.response.status, await errorReason(error.response, abort));
     }
   }
 
@@ -446,14 +551,12 @@ export class PermitElements {
     if (!logoutUrl) {
       // The session lives on the origin that answered its login; a session set some other
       // way (no login answer seen) is on the environment's embed origin.
-      const embedOrigin = this.sessionEnvId() !== undefined
-        ? this.sessionOrigin
-        : embedOriginFor(this.permitApiUrl, this.me?.actor?.env_id);
+      const embedOrigin = this.sessionOrigin ?? embedOriginFor(this.permitApiUrl, this.me?.actor?.env_id);
       if (embedOrigin === undefined) {
-        // No Elements login session to end here: a supportsPrivateBrowser login has no `me`.
+        // No Elements session known in this page (none logged in here, a page reload, a
+        // supportsPrivateBrowser login): nothing to end without logoutCustomUrl.
         this.me = undefined;
-        this.sessionOrigin = undefined;
-        return true;
+        return false;
       }
       logoutUrl = `${embedOrigin}/v2/auth/logout`;
     }
